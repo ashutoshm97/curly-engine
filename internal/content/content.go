@@ -2,6 +2,8 @@
 // fixed shape is used for every layout so one JSON schema covers all slides.
 package content
 
+import "strings"
+
 type Deck struct {
 	Title  string  `json:"title"`
 	Slides []Slide `json:"slides"`
@@ -27,4 +29,19 @@ type Item struct {
 type Table struct {
 	Header []string   `json:"header"`
 	Rows   [][]string `json:"rows"`
+}
+
+// Clean normalizes common LLM formatting slips: bullet lists packed into one
+// string, leading bullet glyphs, and empty entries.
+func Clean(s *Slide) {
+	var out []string
+	for _, b := range s.Bullets {
+		for _, line := range strings.Split(b, "\n") {
+			line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "•●▪◦‣*-–— \t"))
+			if line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	s.Bullets = out
 }
