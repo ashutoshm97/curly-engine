@@ -39,6 +39,8 @@ func (s *Server) Handler() http.Handler {
 	s.mux.HandleFunc("GET /api/profiles/{id}/components.xml", s.getXML)
 	s.mux.HandleFunc("PUT /api/profiles/{id}/components.xml", s.putXML)
 	s.mux.HandleFunc("GET /api/assets/{ref}", s.asset)
+	s.deckRoutes()
+	s.uiRoutes()
 	return logging(s.mux)
 }
 
