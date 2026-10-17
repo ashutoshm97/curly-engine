@@ -144,7 +144,7 @@ func textFor(sl profile.Slot, c content.Slide) []string {
 		if len(c.Bullets) > 0 {
 			return c.Bullets
 		}
-		return nonEmpty(c.Body)
+		return content.SplitList(c.Body)
 	}
 	if c.Body != "" {
 		return []string{c.Body}
