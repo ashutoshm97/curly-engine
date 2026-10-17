@@ -30,33 +30,7 @@ async function loadProfiles() {
 }
 
 async function openProfile(id) {
-  current = id; 
-function showLogin(msg) {
-  $('aside').classList.add('locked');
-  const email = el('input', { type: 'email', id: 'email', placeholder: 'Email', autocomplete: 'username' });
-  const pw = el('input', { type: 'password', id: 'password', placeholder: 'Password (8+ characters)', autocomplete: 'current-password' });
-  const err = el('p', { class: 'muted', id: 'autherr' }, msg || '');
-  const send = (path) => async (e) => {
-    e.preventDefault();
-    try { await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, password: pw.value }) }); start(); }
-    catch (x) { err.textContent = x.message; }
-  };
-  const m = $('#main'); m.innerHTML = '';
-  m.append(el('form', { class: 'auth', id: 'authform', onsubmit: send('/api/auth/login') }, el('h2', {}, 'Sign in'), email, pw,
-    el('div', { class: 'row' }, el('button', { type: 'submit', id: 'login' }, 'Sign in'), el('button', { type: 'button', class: 'sec', id: 'signup', onclick: send('/api/auth/signup') }, 'Create account')), err));
-}
-
-async function start() {
-  try {
-    const { user } = await api('/api/auth/me');
-    $('aside').classList.remove('locked');
-    $('#account').innerHTML = '';
-    $('#account').append(el('span', { class: 'muted' }, user.email), ' ', el('a', { href: '#', id: 'logout', onclick: async (e) => { e.preventDefault(); await api('/api/auth/logout', { method: 'POST' }); current = null; showLogin(); } }, 'Sign out'));
-    $('#main').innerHTML = '<p class="muted">Upload a deck to extract its style, or pick a profile.</p>';
-    loadProfiles();
-  } catch { showLogin(); }
-}
-start();
+  current = id; loadProfiles();
   const { profile: p, version } = await api(`/api/profiles/${id}`);
   const m = $('#main'); m.innerHTML = '';
   m.append(el('div', { class: 'row' }, el('h2', { style: 'margin:0;font-size:20px;color:#1d1f27;text-transform:none' }, p.name), el('span', { class: 'pill' }, `v${version}`), el('span', { class: 'pill' }, `${p.aspect} · ${p.sourceType}`),
@@ -117,4 +91,29 @@ $('#file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
 ['dragover', 'dragenter'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
-loadProfiles();
+function showLogin(msg) {
+  $('aside').classList.add('locked');
+  const email = el('input', { type: 'email', id: 'email', placeholder: 'Email', autocomplete: 'username' });
+  const pw = el('input', { type: 'password', id: 'password', placeholder: 'Password (8+ characters)', autocomplete: 'current-password' });
+  const err = el('p', { class: 'muted', id: 'autherr' }, msg || '');
+  const send = (path) => async (e) => {
+    e.preventDefault();
+    try { await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, password: pw.value }) }); start(); }
+    catch (x) { err.textContent = x.message; }
+  };
+  const m = $('#main'); m.innerHTML = '';
+  m.append(el('form', { class: 'auth', id: 'authform', onsubmit: send('/api/auth/login') }, el('h2', {}, 'Sign in'), email, pw,
+    el('div', { class: 'row' }, el('button', { type: 'submit', id: 'login' }, 'Sign in'), el('button', { type: 'button', class: 'sec', id: 'signup', onclick: send('/api/auth/signup') }, 'Create account')), err));
+}
+
+async function start() {
+  try {
+    const { user } = await api('/api/auth/me');
+    $('aside').classList.remove('locked');
+    $('#account').innerHTML = '';
+    $('#account').append(el('span', { class: 'muted' }, user.email), ' ', el('a', { href: '#', id: 'logout', onclick: async (e) => { e.preventDefault(); await api('/api/auth/logout', { method: 'POST' }); current = null; showLogin(); } }, 'Sign out'));
+    $('#main').innerHTML = '<p class="muted">Upload a deck to extract its style, or pick a profile.</p>';
+    loadProfiles();
+  } catch { showLogin(); }
+}
+start();
