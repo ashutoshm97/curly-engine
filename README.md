@@ -101,3 +101,13 @@ styleengine serve -db 'postgres://user:pass@host:5432/styleengine?sslmode=disabl
 The schema is created on start. Job claiming uses `FOR UPDATE SKIP LOCKED`, so multiple instances can run workers against the same queue. Blobs still live under `-data`; use a shared volume when running more than one instance.
 
 Store tests run against Postgres when `TEST_POSTGRES_DSN` is set (CI does this via a `postgres:16` service).
+
+## Images
+
+Image slots are filled from the slide's `imagePrompt` by a Gemini image model when one is configured:
+
+```bash
+GEMINI_API_KEY=... GEMINI_IMAGE_MODEL=gemini-2.5-flash-image styleengine serve
+```
+
+The requested aspect ratio is the supported ratio closest to the slot's shape. Each image is stored as a content-addressed blob and the prompt→image mapping is cached (30 days), so the same description is never generated twice. Without `GEMINI_IMAGE_MODEL` (or with the offline writer) slots keep their styled placeholder; a failed image call also falls back to the placeholder instead of failing the deck. The `generate` CLI uses images only when `-data` is given (images are written to its blob store).

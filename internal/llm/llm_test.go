@@ -2,10 +2,12 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,5 +86,27 @@ func TestGeminiFailsFastOnLongRetryInfo(t *testing.T) {
 	_, _, err := g.GenerateJSON(context.Background(), Request{Model: "m", Prompt: "p"})
 	if err == nil || calls != 1 || time.Since(start) > time.Second {
 		t.Fatalf("err=%v calls=%d took=%v", err, calls, time.Since(start))
+	}
+}
+
+func TestGeminiGenerateImage(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/models/img-model:generateContent") || r.Header.Get("x-goog-api-key") != "k" {
+			t.Errorf("bad request %s", r.URL.Path)
+		}
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"here"},{"inlineData":{"mimeType":"image/png","data":"`+base64.StdEncoding.EncodeToString([]byte("PNG!"))+`"}}]}}]}`)
+	}))
+	defer srv.Close()
+	g := NewGemini("k")
+	g.BaseURL = srv.URL
+	data, mime, err := g.GenerateImage(context.Background(), "img-model", "a cat", "16:9")
+	if err != nil || string(data) != "PNG!" || mime != "image/png" {
+		t.Fatalf("got %q %q %v", data, mime, err)
+	}
+	if !strings.Contains(body, `"responseModalities":["IMAGE"]`) || !strings.Contains(body, `"aspectRatio":"16:9"`) {
+		t.Fatalf("request body: %s", body)
 	}
 }
