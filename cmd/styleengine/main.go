@@ -171,8 +171,8 @@ func newWriter(st *store.Store) gen.Writer {
 	slog.Info("llm", "provider", "gemini")
 	return &gen.LLMWriter{
 		Client:    llm.NewCached(llm.NewGemini(key), st, 1024, 7*24*time.Hour),
-		PlanModel: envOr("GEMINI_PLAN_MODEL", "gemini-2.5-flash"),
-		FillModel: envOr("GEMINI_FILL_MODEL", "gemini-2.5-flash"),
+		PlanModel: envOr("GEMINI_PLAN_MODEL", "gemini-3.8-flash"),
+		FillModel: envOr("GEMINI_FILL_MODEL", "gemini-3.8-flash"),
 	}
 }
 
