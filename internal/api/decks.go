@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ func (s *Server) deckRoutes() {
 	s.mux.HandleFunc("GET /api/decks/{id}", s.getDeck)
 	s.mux.HandleFunc("GET /api/decks/{id}/slides/{n}", s.slideSVG)
 	s.mux.HandleFunc("GET /api/decks/{id}/export.pptx", s.exportPPTX)
+	s.mux.HandleFunc("POST /api/decks/{id}/slides/{n}/regenerate", s.regenerateSlide)
 	s.mux.HandleFunc("GET /api/profiles/{id}/layouts/{lid}/preview", s.layoutPreview)
 }
 
@@ -134,4 +136,27 @@ func writeSVG(w http.ResponseWriter, svg string) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write([]byte(svg))
+}
+
+func (s *Server) regenerateSlide(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hint string `json:"hint"`
+	}
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+			Error(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+	}
+	n, _ := strconv.Atoi(r.PathValue("n"))
+	sl, p, u, err := s.Gen.RegenerateSlide(r.Context(), r.PathValue("id"), n, req.Hint)
+	switch {
+	case errors.Is(err, gen.ErrNoSlide):
+		Error(w, http.StatusNotFound, err.Error())
+		return
+	case err != nil:
+		storeErr(w, err)
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"index": n, "usage": u, "svg": render.SVG(sl, p.WidthPt, p.HeightPt, assetURL)})
 }

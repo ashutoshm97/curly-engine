@@ -65,12 +65,25 @@ async function generate(profileId, prompt, slides, out, btn) {
       if (d.type === 'outline') { status.textContent = `“${d.title}” – writing ${d.total} slides…`; grid.innerHTML = ''; for (let i = 1; i <= d.total; i++) grid.append(el('div', { class: 'card slide pending', id: `s${i}` }, `Slide ${i}`)); }
       if (d.type === 'slide') { if (!first) first = performance.now() - t0; const c = $(`#s${d.index}`); c.className = 'card slide'; c.innerHTML = d.svg; }
     });
+    for (const c of grid.children) c.append(regenButton(res.deckId, +c.id.slice(1), c));
     const u = res.usage || {};
     status.innerHTML = '';
     status.append(`${res.slides} slides in ${Math.round(performance.now() - t0)} ms (first slide ${Math.round(first)} ms) · tokens in ${u.inputTokens || 0} / out ${u.outputTokens || 0} `,
       el('a', { class: 'btn', href: `/api/decks/${res.deckId}/export.pptx` }, 'Download PPTX'));
   } catch (e) { status.textContent = 'Error: ' + e.message; }
   btn.disabled = false;
+}
+
+function regenButton(deckId, n, card) {
+  const b = el('button', { class: 'sec', style: 'margin-top:6px;padding:4px 10px;font-size:12px' }, '↻ Regenerate');
+  b.onclick = async () => {
+    const hint = prompt('Optional: what should change on this slide?', '') ?? null; if (hint === null) return;
+    b.disabled = true; b.textContent = 'Regenerating…';
+    try { const r = await api(`/api/decks/${deckId}/slides/${n}/regenerate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hint }) });
+      card.querySelector('svg').outerHTML = r.svg; b.textContent = '↻ Regenerate'; } catch (e) { b.textContent = 'Error: ' + e.message; }
+    b.disabled = false;
+  };
+  return b;
 }
 
 const drop = $('#drop');

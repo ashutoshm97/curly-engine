@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ashutoshm97/curly-engine/internal/blob"
+	"github.com/ashutoshm97/curly-engine/internal/gen"
 	"github.com/ashutoshm97/curly-engine/internal/ingest"
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
 	"github.com/ashutoshm97/curly-engine/internal/profile"
@@ -25,6 +26,7 @@ type Server struct {
 	Blobs  *blob.Store
 	Runner *jobs.Runner
 	Ingest *ingest.Service
+	Gen    *gen.Service
 	mux    *http.ServeMux
 }
 

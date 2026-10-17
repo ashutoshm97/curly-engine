@@ -3,6 +3,7 @@ package gen
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -59,51 +60,133 @@ func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (
 	if err != nil {
 		return nil, jobs.Permanent{Err: err}
 	}
-	x, _, err := s.Store.ProfileXML(ctx, d.ProfileID, d.ProfileVersion)
+	p, err := s.profile(ctx, d)
 	if err != nil {
 		return nil, jobs.Permanent{Err: err}
 	}
-	p, err := profile.Parse(x)
-	if err != nil {
-		return nil, jobs.Permanent{Err: err}
-	}
-	n := min(max(pl.Slides, 1), 30)
 	rep.Stage("plan")
-	o, usage, err := s.Writer.Plan(ctx, p, d.Prompt, n)
+	sc, usage, err := Generate(ctx, p, s.Writer, d.Prompt, pl.Slides, s.Concurrency, Hooks{
+		Outline: func(o *Outline) {
+			rep.Data(SlideEvent{Type: "outline", Total: len(o.Slides), Title: o.Title})
+			rep.Stage("fill")
+		},
+		Slide: func(sl *scene.Slide, total int) {
+			rep.Data(SlideEvent{Type: "slide", Index: sl.Index, Total: total, SVG: render.SVG(sl, p.WidthPt, p.HeightPt, s.AssetURL)})
+		},
+	})
 	if err != nil {
-		return nil, err
-	}
-	Sanitize(p, o, n)
-	rep.Data(SlideEvent{Type: "outline", Total: len(o.Slides), Title: o.Title})
-	rep.Stage("fill")
-	sc := &scene.Deck{ProfileID: p.ID, Title: o.Title, WidthPt: p.WidthPt, HeightPt: p.HeightPt, Slides: make([]*scene.Slide, len(o.Slides))}
-	var mu sync.Mutex
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(max(s.Concurrency, 1))
-	for i := range o.Slides {
-		g.Go(func() error {
-			c, u, err := s.Writer.Fill(gctx, p, o, i, d.Prompt)
-			if err != nil {
-				return fmt.Errorf("slide %d: %w", i+1, err)
-			}
-			sl := layout.Compose(p, c, i+1)
-			mu.Lock()
-			sc.Slides[i] = sl
-			usage = add(usage, u)
-			mu.Unlock()
-			rep.Data(SlideEvent{Type: "slide", Index: i + 1, Total: len(o.Slides), SVG: render.SVG(sl, p.WidthPt, p.HeightPt, s.AssetURL)})
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 	b, _ := json.Marshal(sc)
-	d.Title, d.Status, d.Scene = o.Title, "ready", b
+	d.Title, d.Status, d.Scene = sc.Title, "ready", b
 	if err := s.Store.SaveDeck(ctx, d); err != nil {
 		return nil, err
 	}
 	return Result{DeckID: d.ID, Slides: len(sc.Slides), Usage: usage, Ms: time.Since(start).Milliseconds()}, nil
+}
+
+func (s *Service) profile(ctx context.Context, d *store.Deck) (*profile.StyleProfile, error) {
+	x, _, err := s.Store.ProfileXML(ctx, d.ProfileID, d.ProfileVersion)
+	if err != nil {
+		return nil, err
+	}
+	return profile.Parse(x)
+}
+
+// RegenerateSlide rewrites slide n (1-based) of a ready deck with one Fill call and persists it.
+func (s *Service) RegenerateSlide(ctx context.Context, deckID string, n int, hint string) (*scene.Slide, *profile.StyleProfile, llm.Usage, error) {
+	d, err := s.Store.GetDeck(ctx, deckID)
+	if err != nil {
+		return nil, nil, llm.Usage{}, err
+	}
+	sc := &scene.Deck{}
+	if err := json.Unmarshal(d.Scene, sc); err != nil || n < 1 || n > len(sc.Slides) {
+		return nil, nil, llm.Usage{}, ErrNoSlide
+	}
+	p, err := s.profile(ctx, d)
+	if err != nil {
+		return nil, nil, llm.Usage{}, err
+	}
+	sl, u, err := Regenerate(ctx, p, s.Writer, sc, d.Prompt, n, hint)
+	if err != nil {
+		return nil, nil, u, err
+	}
+	b, _ := json.Marshal(sc)
+	d.Scene = b
+	return sl, p, u, s.Store.SaveDeck(ctx, d)
+}
+
+var ErrNoSlide = errors.New("no such slide")
+
+// Hooks receive progress while a deck is generated.
+type Hooks struct {
+	Outline func(o *Outline)
+	Slide   func(s *scene.Slide, total int)
+}
+
+// Generate plans n slides, fills them concurrently and composes each into a scene slide.
+func Generate(ctx context.Context, p *profile.StyleProfile, w Writer, prompt string, n, concurrency int, h Hooks) (*scene.Deck, llm.Usage, error) {
+	n = min(max(n, 1), 30)
+	o, usage, err := w.Plan(ctx, p, prompt, n)
+	if err != nil {
+		return nil, usage, err
+	}
+	Sanitize(p, o, n)
+	if h.Outline != nil {
+		h.Outline(o)
+	}
+	sc := &scene.Deck{ProfileID: p.ID, Title: o.Title, WidthPt: p.WidthPt, HeightPt: p.HeightPt, Slides: make([]*scene.Slide, len(o.Slides))}
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(max(concurrency, 1))
+	for i := range o.Slides {
+		g.Go(func() error {
+			c, u, err := w.Fill(gctx, p, o, i, prompt)
+			if err != nil {
+				return fmt.Errorf("slide %d: %w", i+1, err)
+			}
+			sl := compose(p, o, i, c)
+			mu.Lock()
+			sc.Slides[i] = sl
+			usage = add(usage, u)
+			mu.Unlock()
+			if h.Slide != nil {
+				h.Slide(sl, len(o.Slides))
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, usage, err
+	}
+	return sc, usage, nil
+}
+
+// Regenerate replaces slide n in sc. The outline is rebuilt from the stored
+// slides; a variation suffix keeps the LLM cache from returning the old answer.
+func Regenerate(ctx context.Context, p *profile.StyleProfile, w Writer, sc *scene.Deck, prompt string, n int, hint string) (*scene.Slide, llm.Usage, error) {
+	o := &Outline{Title: sc.Title}
+	for _, s := range sc.Slides {
+		o.Slides = append(o.Slides, OutlineItem{Layout: s.Layout, Title: s.Title, Intent: s.Intent})
+	}
+	Sanitize(p, o, len(o.Slides))
+	if hint != "" {
+		o.Slides[n-1].Intent += ". Revision request: " + hint
+	}
+	c, u, err := w.Fill(ctx, p, o, n-1, fmt.Sprintf("%s\n(alternative version %d)", prompt, time.Now().UnixNano()))
+	if err != nil {
+		return nil, u, err
+	}
+	sl := compose(p, o, n-1, c)
+	sl.Intent = sc.Slides[n-1].Intent
+	sc.Slides[n-1] = sl
+	return sl, u, nil
+}
+
+func compose(p *profile.StyleProfile, o *Outline, i int, c content.Slide) *scene.Slide {
+	sl := layout.Compose(p, c, i+1)
+	sl.Title, sl.Intent = c.Title, o.Slides[i].Intent
+	return sl
 }
 
 func add(a, b llm.Usage) llm.Usage {
