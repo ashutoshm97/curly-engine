@@ -17,7 +17,7 @@ Diagrams render natively on GitHub. Click a ▸ heading to expand it.
 
 ```mermaid
 flowchart LR
-    U([User / Browser]) -->|upload .pptx / .html| API
+    U([User / Browser]) -->|upload .pptx / .html / .pdf| API
     U -->|prompt + profile| API
     API <-->|SSE progress + slides| U
 
@@ -303,8 +303,8 @@ Editing: `PUT /api/profiles/{id}/components.xml` validates the XML and stores it
 
 | Goals | Non-goals (v1) |
 |---|---|
-| Ingest `.pptx` / `.potx` and `.html` decks | Pixel-perfect PPTX round-trip (SmartArt, animations, 3D) |
-| Extract theme, type scale, layouts, components, tables, placements into a versioned profile | PDF / image-only decks (needs vision; possible Phase 3 fallback) |
+| Ingest `.pptx` / `.potx`, `.html` and text-layer `.pdf` decks | Pixel-perfect PPTX round-trip (SmartArt, animations, 3D) |
+| Extract theme, type scale, layouts, components, tables, placements into a versioned profile | Scanned / image-only PDFs (needs vision; possible Phase 3 fallback) |
 | Generate new decks "in the style of" a profile from a prompt/outline | Real-time co-editing |
 | Low latency, many concurrent users on one box | Horizontal scale-out (see §9) |
 | LLM optional except for writing content; works offline with a heuristic provider | |
@@ -511,7 +511,7 @@ CLI: `styleengine serve`, `styleengine extract <file> [-o components.xml]`, `sty
 |---|---|
 | **1 (this repo)** | PPTX + HTML extraction → `components.xml`; SQLite store/queue; Gemini plan/fill; layout/text-fit; PPTX/SVG export; embedded UI |
 | 2 | Profile review editing in the UI (merge/rename layouts, token editor); charts; image generation/search for image slots; font upload |
-| 3 | Postgres + object storage + external queue for multi-node; per-tenant auth and quotas; learned role classifier from user edits; PDF/image ingest via Gemini vision (fallback only) |
+| 3 | Postgres + object storage + external queue for multi-node; per-tenant auth and quotas; learned role classifier from user edits; scanned-PDF/image ingest via Gemini vision (fallback only) |
 
 ## 12. Risks
 

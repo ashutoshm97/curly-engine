@@ -7,6 +7,7 @@ require (
 	github.com/chromedp/chromedp v0.11.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.7.1
+	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
 	golang.org/x/crypto v0.28.0
 	golang.org/x/image v0.21.0
 	golang.org/x/sync v0.8.0

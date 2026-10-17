@@ -7,7 +7,7 @@ Styling is extracted **deterministically** (no LLM): theme colors, fonts, type s
 ## Requirements
 
 - Go 1.23+
-- Chrome/Chromium for HTML decks (auto-detected, or set `CHROME_PATH`). PPTX extraction needs nothing else.
+- Chrome/Chromium for HTML decks (auto-detected, or set `CHROME_PATH`). PPTX and PDF extraction need nothing else; PDFs must have a text layer (exported decks, not scans).
 
 ## Usage
 
@@ -54,6 +54,7 @@ python3 testdata/gen_samples.py   # regenerates testdata/acme.pptx (needs python
 cmd/styleengine     CLI: extract | serve
 internal/ooxml      PPTX (OOXML) parser → rawdeck
 internal/htmlx      HTML decks measured in headless Chrome (chromedp) → rawdeck
+internal/pdfx       text-layer PDFs: content-stream text runs, fills, images, repeated title spot → rawdeck
 internal/rawdeck    source-neutral intermediate representation
 internal/normalize  rawdeck → StyleProfile (palette, type scale, layout clustering, placements)
 internal/profile    components.xml schema, parse/validate

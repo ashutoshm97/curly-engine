@@ -15,6 +15,7 @@ import (
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
 	"github.com/ashutoshm97/curly-engine/internal/normalize"
 	"github.com/ashutoshm97/curly-engine/internal/ooxml"
+	"github.com/ashutoshm97/curly-engine/internal/pdfx"
 	"github.com/ashutoshm97/curly-engine/internal/profile"
 	"github.com/ashutoshm97/curly-engine/internal/rawdeck"
 	"github.com/ashutoshm97/curly-engine/internal/store"
@@ -45,6 +46,8 @@ type Service struct {
 func DetectKind(filename string, data []byte) (string, error) {
 	head := bytes.TrimSpace(data[:min(len(data), 512)])
 	switch {
+	case bytes.HasPrefix(data, []byte("%PDF-")):
+		return "pdf", nil
 	case bytes.HasPrefix(data, []byte("PK\x03\x04")):
 		return "pptx", nil
 	case bytes.HasPrefix(bytes.ToLower(head), []byte("<!doctype html")), bytes.HasPrefix(bytes.ToLower(head), []byte("<html")):
@@ -54,7 +57,7 @@ func DetectKind(filename string, data []byte) (string, error) {
 	case ".html", ".htm":
 		return "html", nil
 	}
-	return "", errors.New("unsupported file: expected .pptx or .html")
+	return "", errors.New("unsupported file: expected .pptx, .html or .pdf")
 }
 
 // Extract parses a source file into a raw deck.
@@ -62,6 +65,8 @@ func (s *Service) Extract(ctx context.Context, kind string, data []byte) (*rawde
 	switch kind {
 	case "pptx":
 		return ooxml.Extract(data, ooxml.DefaultLimits)
+	case "pdf":
+		return pdfx.Extract(data, pdfx.DefaultLimits)
 	case "html":
 		if s.HTML == nil {
 			return nil, errors.New("html extraction disabled")
