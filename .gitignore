@@ -1,0 +1,8 @@
+/data/
+/bin/
+*.db
+*.db-shm
+*.db-wal
+.env
+/out/
+__pycache__/
