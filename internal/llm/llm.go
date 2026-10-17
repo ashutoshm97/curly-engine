@@ -94,7 +94,7 @@ func (r *gResponse) retryDelay() time.Duration {
 	}
 	for _, d := range r.Error.Details {
 		if v, err := time.ParseDuration(d.RetryDelay); err == nil && v > 0 {
-			return min(v, MaxRetryDelay)
+			return v
 		}
 	}
 	return 0
@@ -144,7 +144,10 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 			if gr.Error != nil {
 				lastErr = fmt.Errorf("gemini %d: %s", resp.StatusCode, firstLine(gr.Error.Message))
 			}
-			wait = gr.retryDelay()
+			// A long server delay means a daily quota is exhausted: fail fast.
+			if wait = gr.retryDelay(); wait > MaxRetryDelay {
+				return nil, Usage{}, fmt.Errorf("%w (retry in %s)", lastErr, wait.Round(time.Minute))
+			}
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {

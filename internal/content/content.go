@@ -34,6 +34,9 @@ type Table struct {
 // Clean normalizes common LLM formatting slips: bullet lists packed into one
 // string, leading bullet glyphs, and empty entries.
 func Clean(s *Slide) {
+	if len(s.Bullets) == 0 && strings.Count(s.Body, "\n") > 0 && hasBulletLines(s.Body) {
+		s.Bullets, s.Body = []string{s.Body}, ""
+	}
 	var out []string
 	for _, b := range s.Bullets {
 		for _, line := range strings.Split(b, "\n") {
@@ -44,4 +47,14 @@ func Clean(s *Slide) {
 		}
 	}
 	s.Bullets = out
+}
+
+func hasBulletLines(text string) bool {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		if t := strings.TrimSpace(line); t != "" && strings.ContainsRune("•●▪◦‣*-–", []rune(t)[0]) {
+			n++
+		}
+	}
+	return n >= 2
 }
