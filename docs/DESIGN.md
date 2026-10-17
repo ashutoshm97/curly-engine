@@ -4,6 +4,293 @@ Extract a reusable design system from PPTX/HTML decks (`components.xml`) and gen
 
 > Status: v1 targets a **single Go binary** on **SQLite**. Postgres is supported later through the `store.Store` interface. Section 9 tracks what was simplified from the original "scale-out" design and how to grow back into it.
 
+## Contents
+
+- [Visual guide](#visual-guide): system map, upload flow, generation flow, job states, data model, timing, UI mockups
+- [1. Summary](#1-summary) · [3. Architecture](#3-architecture-v1) · [4. components.xml](#4-the-style-profile-componentsxml) · [6. Generation](#6-generation-where-llm-cost-is-controlled) · [7. Latency](#7-latency-targets-single-box-initial) · [8. API](#8-api-v1)
+
+## Visual guide
+
+Diagrams render natively on GitHub. Click a ▸ heading to expand it.
+
+### System map
+
+```mermaid
+flowchart LR
+    U([User / Browser]) -->|upload .pptx / .html| API
+    U -->|prompt + profile| API
+    API <-->|SSE progress + slides| U
+
+    subgraph BIN["styleengine (one Go binary)"]
+        API[HTTP API] --> Q[(SQLite job queue)]
+        Q --> W{{Worker pool}}
+        W -->|ingest| EX[Extractors<br/>ooxml · htmlx]
+        EX --> N[normalize]
+        N --> XML[components.xml]
+        W -->|generate| G[gen: plan + fill]
+        G --> L[layout + text fit]
+        L --> R[render: SVG · PPTX]
+        XML --> G
+    end
+
+    EX -.HTML only.-> CH[[Headless Chrome]]
+    G -.content only.-> GM[[Gemini API]]
+    XML --> DB[(SQLite: profiles, versions, decks, cache)]
+    EX --> BL[(Blob store<br/>sha256 files)]
+
+    classDef ext fill:#fff4e5,stroke:#f0a020
+    class CH,GM ext
+```
+
+Gemini (orange) is the only paid external call, and it only appears on the generation path. Extraction never calls an LLM.
+
+<details>
+<summary><b>▸ Upload → components.xml (sequence)</b></summary>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant API
+    participant DB as SQLite
+    participant W as Worker
+    participant X as Extractor
+    participant B as Blob store
+
+    User->>API: POST /api/uploads (deck.pptx)
+    API->>B: put(bytes) → sha256
+    API->>DB: insert upload + enqueue ingest job (idempotency key = sha256)
+    API-->>User: 202 {job}
+    User->>API: GET /api/jobs/{id}/events (SSE)
+    W->>DB: claim job (UPDATE … RETURNING)
+    alt same file seen before
+        W->>DB: find profile by source sha256
+        W-->>User: done {profileId, reused: true}
+    else new file
+        W-->>User: stage: parse
+        W->>X: ooxml.Extract / htmlx.Extract → rawdeck
+        W-->>User: stage: normalize
+        W->>W: palette · type scale · layouts · tables · placements
+        W->>B: save image assets
+        W->>DB: profile + version 1 (components.xml)
+        W-->>User: done {profileId, layouts, slides}
+    end
+```
+</details>
+
+<details>
+<summary><b>▸ Prompt → deck (sequence, with parallel fill)</b></summary>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant API
+    participant W as Worker
+    participant LLM as Gemini (cached)
+    participant L as layout + render
+
+    User->>API: POST /api/decks {profileId, prompt, slides: 6}
+    API-->>User: 202 {deck, job}
+    User->>API: SSE /api/jobs/{id}/events
+    W->>LLM: PLAN: layout catalog + prompt
+    LLM-->>W: outline [{layout, title, intent}] × 6
+    W-->>User: data: outline (6 placeholders appear)
+    par up to 4 slides at once
+        W->>LLM: FILL slide 1
+        LLM-->>W: content JSON (no styles)
+        W->>L: Compose + SVG
+        W-->>User: data: slide 1 svg
+    and
+        W->>LLM: FILL slide 2
+        LLM-->>W: content JSON
+        W->>L: Compose + SVG
+        W-->>User: data: slide 2 svg
+    end
+    W->>W: save scene JSON on deck
+    W-->>User: done {usage, ms}
+    User->>API: GET /api/decks/{id}/export.pptx
+    API-->>User: editable .pptx
+```
+
+The LLM receives only the layout catalog (slot names, types, char limits). Colors, fonts and coordinates are applied in Go after the response arrives.
+</details>
+
+<details>
+<summary><b>▸ Job lifecycle (state diagram)</b></summary>
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: Enqueue (deduped by idem_key)
+    queued --> running: Claim (atomic UPDATE … RETURNING)
+    running --> succeeded: Complete(result)
+    running --> queued: transient error, attempts < max (backoff via run_after)
+    running --> failed: Permanent error or attempts = max
+    running --> queued: process restart (RecoverRunning)
+    succeeded --> [*]
+    failed --> [*]
+```
+</details>
+
+<details>
+<summary><b>▸ Data model (SQLite)</b></summary>
+
+```mermaid
+erDiagram
+    uploads ||--o| profiles : "produces"
+    profiles ||--|{ profile_versions : "has"
+    profiles ||--o{ decks : "styles"
+    uploads {
+        string id PK
+        string sha256
+        string filename
+        string kind
+    }
+    profiles {
+        string id PK
+        string upload_id FK
+        string source_sha256
+        int current_version
+    }
+    profile_versions {
+        string profile_id FK
+        int version
+        text xml "components.xml"
+        string note
+    }
+    decks {
+        string id PK
+        string profile_id FK
+        int profile_version
+        string status
+        text scene "scene JSON"
+    }
+    jobs {
+        string id PK
+        string type
+        string status
+        int attempts
+        string idem_key
+    }
+    cache {
+        string key PK
+        blob value
+        int expires_at
+    }
+```
+</details>
+
+<details>
+<summary><b>▸ Timing: where the milliseconds go</b></summary>
+
+Measured locally on the sample fixtures (single run, not a benchmark): PPTX extract ≈ 12 ms (9 slides), HTML extract ≈ 330 ms (6 slides, including Chrome start). The generation bars are **targets**, not measurements; Gemini latency has not been measured yet.
+
+```mermaid
+gantt
+    title Generate 6 slides with Gemini (target, ms)
+    dateFormat x
+    axisFormat %L ms
+    section Request
+    Enqueue + SSE connect     :a1, 0, 20
+    section Plan
+    Gemini plan call          :a2, after a1, 900
+    section Fill (4 parallel)
+    Slide 1                   :b1, after a2, 700
+    Slide 2                   :b2, after a2, 750
+    Slide 3                   :b3, after a2, 650
+    Slide 4                   :b4, after a2, 800
+    Slide 5                   :b5, after b3, 700
+    Slide 6                   :b6, after b1, 700
+    section Go (per slide)
+    Compose + SVG             :c1, after b6, 5
+    Save scene                :c2, after c1, 5
+```
+
+| Step | Who | Target |
+|---|---|---|
+| PPTX → components.xml | Go only | < 1 s for 30 slides (measured ≈ 12 ms for 9) |
+| HTML → components.xml | Go + Chrome | < 6 s for 30 slides (measured ≈ 330 ms for 6) |
+| First slide on screen | Gemini plan + 1 fill | < 2 s |
+| Compose + SVG per slide | Go only | < 10 ms |
+| Export .pptx | Go only | < 100 ms |
+| Repeat identical request | LLM cache hit | no Gemini call |
+</details>
+
+<details>
+<summary><b>▸ UI mockups (embedded web UI)</b></summary>
+
+**1. Upload and review the extracted style**
+
+```text
+┌──────────────────────┬─────────────────────────────────────────────────────────────┐
+│ Style Engine         │  Acme Brand   [v1] [16:9 · pptx]   [ components.xml ]        │
+│ ┌──────────────────┐ │                                                              │
+│ │ Drop a .pptx or  │ │  Colors                                                      │
+│ │ .html deck       │ │  ███ ███ ███ ███ ███ ███                                     │
+│ └──────────────────┘ │  dk1 lt1 acc1 acc2 acc3 acc4                                 │
+│ Extracted in 41 ms   │                                                              │
+│                      │  Typography                                                  │
+│ PROFILES             │  heading: Montserrat   body: Open Sans                       │
+│ ▸ Acme Brand  pptx v1│  display 44pt · h1 32pt · body 18pt · caption 12pt           │
+│   Nimbus      html v1│                                                              │
+│                      │  Layouts (4)                                                 │
+│                      │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                  │
+│                      │  │ TITLE  │ │ ▪ text │ │ ▢ ▢ ▢  │ │ ▤ table│                  │
+│                      │  └────────┘ └────────┘ └────────┘ └────────┘                  │
+│                      │  L1 title   L2 content L3 data   L4 data                      │
+└──────────────────────┴─────────────────────────────────────────────────────────────┘
+```
+
+**2. Generate in that style (slides stream in as they finish)**
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Generate a deck in this style                                               │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ Quarterly business review for a B2B SaaS company: growth, churn, ...    │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│ Slides [ 6 ]  [ Generate ]                                                  │
+│                                                                             │
+│ "Q3 Business Review" – writing 6 slides…                                    │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐ │
+│ │ ✓ slide1 │ │ ✓ slide2 │ │ ✓ slide3 │ │ … slide4 │ │ … slide5 │ │ …      │ │
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────┘ │
+│                                                                             │
+│ 6 slides in 2.1 s (first slide 1.4 s) · tokens in 3.2k / out 1.9k           │
+│ [ Download PPTX ]                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Figures in the mockups are illustrative.
+</details>
+
+<details>
+<summary><b>▸ What goes into components.xml (annotated)</b></summary>
+
+```mermaid
+flowchart TD
+    D[Uploaded deck] --> T[Theme tokens<br/>colors · fonts · type scale]
+    D --> LY[Layouts<br/>slots with box, type, maxChars]
+    D --> C[Components<br/>cards, KPIs, callouts]
+    D --> TB[Table styles<br/>header · banding · borders]
+    D --> P[Placement patterns<br/>logo · page number · footer]
+    D --> A[Assets<br/>sha256 refs]
+    T & LY & C & TB & P & A --> X[components.xml<br/>versioned, editable, validated]
+```
+
+Editing: `PUT /api/profiles/{id}/components.xml` validates the XML and stores it as a new version. Older versions stay readable, and existing decks keep the version they were generated with.
+</details>
+
+### Try it in 60 seconds
+
+- [ ] `go run ./cmd/styleengine serve -addr :8080 -data ./data`
+- [ ] Open `http://localhost:8080` and drop `testdata/acme.pptx`
+- [ ] Check the palette, fonts and layout previews, then open `components.xml`
+- [ ] Enter a prompt and click **Generate** (offline writer unless `GEMINI_API_KEY` is set)
+- [ ] Click **Download PPTX** and open it in PowerPoint, Keynote or Google Slides
+
+> The UI, generation and `.pptx` export ship in [PR #2](https://github.com/ashutoshm97/curly-engine/pull/2). On this branch alone, the extraction API and CLI are available.
+
 ---
 
 ## 1. Summary
