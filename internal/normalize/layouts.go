@@ -220,10 +220,12 @@ func (b *builder) layouts(cs []*cluster) {
 			case rawdeck.RoleImage:
 				slot.Type = "image"
 				slot.Radius = round(el.RadiusPx, 1)
+				slot.Component = b.imageComponent(el, c.medoid)
 			case rawdeck.RoleTable:
 				slot.Type = "table"
 				if el.Table != nil {
 					slot.TableStyle = el.Table.StyleID
+					slot.Component = b.tableComponent(el.Table.StyleID)
 					slot.MaxCols = max(el.Table.Cols, 2) + 1
 				}
 				rowH := b.p.Step("caption").Size * 2.2
@@ -300,6 +302,7 @@ func (b *builder) repeat(cards []*rawdeck.Element, maxCards int) profile.Repeat 
 // layoutDecor keeps non-content elements that recur in ≥50% of the cluster.
 func (b *builder) layoutDecor(c *cluster) []profile.Decor {
 	var out []profile.Decor
+	var boxes []rawdeck.Box
 	for _, el := range decorOf(c.medoid) {
 		hits := 0
 		for _, m := range c.members {
@@ -317,7 +320,7 @@ func (b *builder) layoutDecor(c *cluster) []profile.Decor {
 		switch el.Kind {
 		case rawdeck.KindImage:
 			d.Kind = "image"
-			d.Asset = b.asset(el.ImageRef)
+			d.Asset = b.assetFor(el)
 		case rawdeck.KindText:
 			d.Kind = "text"
 			d.Text = el.Text
@@ -329,6 +332,17 @@ func (b *builder) layoutDecor(c *cluster) []profile.Decor {
 			d.Kind = "shape"
 			d.Fill = b.pal.ref(el.Fill)
 		}
+		dup := false
+		for i, o := range out {
+			if o.Kind == d.Kind && o.Asset == d.Asset && o.Fill == d.Fill && o.Text == d.Text && boxes[i].IoU(el.Box) > 0.9 {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		boxes = append(boxes, el.Box)
 		out = append(out, d)
 	}
 	return out
@@ -518,7 +532,7 @@ func (b *builder) placements() {
 		}
 		p := profile.Placement{Element: string(c.el.Role), Anchor: anchor(c.el.Box), Box: snap(c.el.Box), Support: round(sup, 2)}
 		if c.el.Kind == rawdeck.KindImage {
-			p.Asset = b.asset(c.el.ImageRef)
+			p.Asset = b.assetFor(c.el)
 		}
 		b.p.Patterns.Placements = append(b.p.Patterns.Placements, p)
 	}

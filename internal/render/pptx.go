@@ -229,8 +229,8 @@ func slideXML(s *scene.Slide, blobs Blobs, embed func(ref string, data []byte) s
 			}
 			if data == nil {
 				ph := &scene.Text{Paragraphs: []string{im.Placeholder}, Font: "Arial", SizePt: 11, LineHeight: 1.2, Color: im.TextColor, Align: "ctr", InsetX: 7.2, InsetY: 3.6}
-				fmt.Fprintf(&b, `<p:sp><p:nvSpPr><p:cNvPr id="%d" name="Image placeholder"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>%s%s%s<a:ln><a:noFill/></a:ln></p:spPr>%s</p:sp>`,
-					id, xfrm(e), geom("roundRect", im.RadiusPt, e.W, e.H), solid(im.Fill), strings.Replace(txBody(ph), `anchor="t"`, `anchor="ctr"`, 1))
+				fmt.Fprintf(&b, `<p:sp><p:nvSpPr><p:cNvPr id="%d" name="Image placeholder"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>%s%s%s%s</p:spPr>%s</p:sp>`,
+					id, xfrm(e), geom("roundRect", im.RadiusPt, e.W, e.H), solid(im.Fill), lnXML(im.Line, im.LineWidthPt), strings.Replace(txBody(ph), `anchor="t"`, `anchor="ctr"`, 1))
 				break
 			}
 			rid := embed(im.Ref, data)
@@ -246,8 +246,8 @@ func slideXML(s *scene.Slide, blobs Blobs, embed func(ref string, data []byte) s
 					box.Y = e.Y + (e.H-box.H)/2
 				}
 			}
-			fmt.Fprintf(&b, `<p:pic><p:nvPicPr><p:cNvPr id="%d" name="%s"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>%s<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`,
-				id, name, rid, xfrm(&box))
+			fmt.Fprintf(&b, `<p:pic><p:nvPicPr><p:cNvPr id="%d" name="%s"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>%s<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>%s</p:spPr></p:pic>`,
+				id, name, rid, xfrm(&box), picLine(im))
 		case "table":
 			b.WriteString(tableXML(e, id, name))
 		}
@@ -288,9 +288,19 @@ func txBody(t *scene.Text) string {
 		ppr := fmt.Sprintf(`algn="%s"`, algn(t.Align))
 		inner := fmt.Sprintf(`<a:lnSpc><a:spcPct val="%d"/></a:lnSpc>`, lh)
 		if t.Bullet != "" {
-			ind := emu(t.SizePt * 1.1)
-			ppr += fmt.Sprintf(` marL="%d" indent="-%d"`, ind, ind)
-			inner += `<a:spcBef><a:spcPts val="` + fmt.Sprint(int(t.SizePt*t.LineHeight*35)) + `"/></a:spcBef>`
+			ind, hang := emu(t.SizePt*1.1), emu(t.SizePt*1.1)
+			if t.IndentPt > 0 {
+				ind, hang = emu(t.IndentPt), emu(t.IndentPt)
+				if t.HangPt > 0 {
+					hang = emu(t.HangPt)
+				}
+			}
+			ppr += fmt.Sprintf(` marL="%d" indent="-%d"`, ind, hang)
+			bef := int(t.SizePt * t.LineHeight * 35)
+			if t.SpaceBefore > 0 {
+				bef = int(t.SpaceBefore * 100)
+			}
+			inner += `<a:spcBef><a:spcPts val="` + fmt.Sprint(bef) + `"/></a:spcBef>`
 			if t.BulletColor != "" {
 				inner += `<a:buClr><a:srgbClr val="` + hex6(t.BulletColor) + `"/></a:buClr>`
 			}
@@ -345,4 +355,21 @@ func tableXML(e *scene.Element, id int, name string) string {
 	}
 	b.WriteString(`</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`)
 	return b.String()
+}
+
+func lnXML(color string, w float64) string {
+	if color == "" {
+		return `<a:ln><a:noFill/></a:ln>`
+	}
+	if w <= 0 {
+		w = 0.75
+	}
+	return fmt.Sprintf(`<a:ln w="%d">%s</a:ln>`, emu(w), solid(color))
+}
+
+func picLine(im *scene.Image) string {
+	if im.Line == "" {
+		return ""
+	}
+	return lnXML(im.Line, im.LineWidthPt)
 }

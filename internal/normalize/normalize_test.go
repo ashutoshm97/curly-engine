@@ -69,3 +69,55 @@ func TestAcmeProfile(t *testing.T) {
 		t.Errorf("round trip mismatch")
 	}
 }
+
+func TestSubComponents(t *testing.T) {
+	p := loadAcme(t)
+	var list, img, table *profile.Component
+	for i := range p.Components {
+		c := &p.Components[i]
+		switch c.Type {
+		case "list":
+			list = c
+		case "image":
+			img = c
+		case "table":
+			table = c
+		}
+	}
+	if list == nil || list.Bullets == nil || len(list.Bullets.Levels) == 0 || list.Bullets.Levels[0].Glyph == "" || list.Bullets.Levels[0].IndentPt == 0 {
+		t.Errorf("list bullets = %+v", list)
+	}
+	if img == nil || img.Frame == nil || img.Frame.Fit == "" {
+		t.Errorf("image frame = %+v", img)
+	}
+	if table == nil || table.Header == nil || table.Body == nil || table.Header.Fill == "" {
+		t.Fatalf("table component = %+v", table)
+	}
+	slots := map[string]string{}
+	for _, l := range p.Layouts {
+		for _, s := range l.Slots {
+			if s.Type == "image" || s.Type == "table" {
+				slots[s.Type] = s.Component
+			}
+		}
+	}
+	if slots["image"] != img.ID || slots["table"] != table.ID {
+		t.Errorf("slot components = %v", slots)
+	}
+	for _, a := range p.Assets {
+		if a.Format == "" || a.Kind == "" {
+			t.Errorf("asset %s missing kind/format: %+v", a.ID, a)
+		}
+	}
+	out, err := p.MarshalIndent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := profile.Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := back.Component(table.ID); c == nil || c.Header == nil || c.Header.Fill != table.Header.Fill {
+		t.Errorf("table component did not round-trip: %+v", c)
+	}
+}

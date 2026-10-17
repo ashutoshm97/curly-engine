@@ -105,17 +105,19 @@ type jsSlide struct {
 }
 
 type jsElement struct {
-	Kind       string      `json:"kind"`
-	Box        rawdeck.Box `json:"box"`
-	Text       string      `json:"text"`
-	Paragraphs int         `json:"paragraphs"`
-	Bullet     string      `json:"bullet"`
-	Tag        string      `json:"tag"`
-	Src        string      `json:"src"`
-	Fill       string      `json:"fill"`
-	Radius     float64     `json:"radius"`
-	Shadow     bool        `json:"shadow"`
-	Style      struct {
+	Kind        string      `json:"kind"`
+	Box         rawdeck.Box `json:"box"`
+	Text        string      `json:"text"`
+	Paragraphs  int         `json:"paragraphs"`
+	Bullet      string      `json:"bullet"`
+	Tag         string      `json:"tag"`
+	Src         string      `json:"src"`
+	Fill        string      `json:"fill"`
+	Radius      float64     `json:"radius"`
+	Shadow      bool        `json:"shadow"`
+	BorderWidth float64     `json:"borderWidth"`
+	BorderColor string      `json:"borderColor"`
+	Style       struct {
 		Font   string  `json:"font"`
 		Size   float64 `json:"size"`
 		Weight int     `json:"weight"`
@@ -211,6 +213,11 @@ func toDeck(slides []jsSlide, src []byte) *rawdeck.Deck {
 			case "image":
 				el.Kind, el.Role = rawdeck.KindImage, ""
 				el.RadiusPx = e.Radius
+				el.Shadow = e.Shadow
+				if e.BorderWidth > 0 {
+					el.Line = cssColor(e.BorderColor)
+					el.LineWidthPt = round(e.BorderWidth * ptPerPx)
+				}
 				if ref, mime, data, ok := dataURI(e.Src); ok {
 					d.AddAsset(ref, mime, data)
 					el.ImageRef = ref

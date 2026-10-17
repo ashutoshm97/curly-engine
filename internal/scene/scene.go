@@ -47,6 +47,9 @@ type Text struct {
 	Align       string   `json:"align,omitempty"` // l|ctr|r|just
 	Bullet      string   `json:"bullet,omitempty"`
 	BulletColor string   `json:"bulletColor,omitempty"`
+	IndentPt    float64  `json:"indentPt,omitempty"`
+	HangPt      float64  `json:"hangPt,omitempty"`
+	SpaceBefore float64  `json:"spaceBeforePt,omitempty"`
 	Truncated   bool     `json:"truncated,omitempty"`
 	InsetX      float64  `json:"insetX"`
 	InsetY      float64  `json:"insetY"`
@@ -75,6 +78,11 @@ type Image struct {
 	Fill        string  `json:"fill,omitempty"`
 	TextColor   string  `json:"textColor,omitempty"`
 	RadiusPt    float64 `json:"radiusPt,omitempty"`
+	Line        string  `json:"line,omitempty"`
+	LineWidthPt float64 `json:"lineWidthPt,omitempty"`
+	Shadow      bool    `json:"shadow,omitempty"`
+	AltRef      string  `json:"altRef,omitempty"`
+	AltMime     string  `json:"altMime,omitempty"`
 }
 
 type Table struct {

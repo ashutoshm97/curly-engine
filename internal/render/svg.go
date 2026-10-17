@@ -70,11 +70,23 @@ func shape(b *strings.Builder, e *scene.Element) {
 
 func imageEl(b *strings.Builder, e *scene.Element, asset AssetURL, i int) {
 	im := e.Image
-	if im.Ref != "" && asset != nil {
-		fmt.Fprintf(b, `<image x="%s" y="%s" width="%s" height="%s" href="%s" preserveAspectRatio="xMidYMid meet"/>`, f(e.X), f(e.Y), f(e.W), f(e.H), attr(asset(im.Ref)))
+	ref := im.Ref
+	if ref != "" && !browserImage(im.Mime) {
+		// e.g. EMF logos: kept for PPTX, drawn here only if an SVG/PNG twin exists.
+		if ref = im.AltRef; ref == "" {
+			return
+		}
+	}
+	if ref != "" && asset != nil {
+		fmt.Fprintf(b, `<image x="%s" y="%s" width="%s" height="%s" href="%s" preserveAspectRatio="xMidYMid meet"/>`, f(e.X), f(e.Y), f(e.W), f(e.H), attr(asset(ref)))
+		frame(b, e)
 		return
 	}
-	fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s"/>`, f(e.X), f(e.Y), f(e.W), f(e.H), f(im.RadiusPt), attr(im.Fill))
+	filter := ""
+	if im.Shadow {
+		filter = ` filter="url(#sh)"`
+	}
+	fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s"%s/>`, f(e.X), f(e.Y), f(e.W), f(e.H), f(im.RadiusPt), attr(im.Fill), filter)
 	cx, cy := e.X+e.W/2, e.Y+e.H/2
 	fmt.Fprintf(b, `<path d="M%s %s l18 -22 l12 14 l8 -9 l16 17 z" fill="%s" opacity="0.25"/>`, f(cx-27), f(cy+6), attr(im.TextColor))
 	label := im.Placeholder
@@ -82,6 +94,27 @@ func imageEl(b *strings.Builder, e *scene.Element, asset AssetURL, i int) {
 		label = string([]rune(label)[:57]) + "…"
 	}
 	fmt.Fprintf(b, `<text x="%s" y="%s" text-anchor="middle" font-family="sans-serif" font-size="11" fill="%s" opacity="0.6">%s</text>`, f(cx), f(cy+28), attr(im.TextColor), html.EscapeString(label))
+	frame(b, e)
+}
+
+func frame(b *strings.Builder, e *scene.Element) {
+	im := e.Image
+	if im.Line == "" {
+		return
+	}
+	w := im.LineWidthPt
+	if w <= 0 {
+		w = 0.75
+	}
+	fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="none" stroke="%s" stroke-width="%s"/>`, f(e.X), f(e.Y), f(e.W), f(e.H), f(im.RadiusPt), attr(im.Line), f(w))
+}
+
+func browserImage(mime string) bool {
+	switch mime {
+	case "", "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml":
+		return true
+	}
+	return false
 }
 
 func family(t *scene.Text) string {
@@ -119,7 +152,11 @@ func text(b *strings.Builder, e *scene.Element, t *scene.Text) {
 			if bc == "" {
 				bc = t.Color
 			}
-			fmt.Fprintf(b, `<text x="%s" y="%s" fill="%s">%s</text>`, f(e.X+t.InsetX), f(e.Y+l.Baseline), attr(bc), html.EscapeString(t.Bullet))
+			bx := 0.0
+			if t.IndentPt > 0 && t.HangPt > 0 {
+				bx = max(0, t.IndentPt-t.HangPt)
+			}
+			fmt.Fprintf(b, `<text x="%s" y="%s" fill="%s">%s</text>`, f(e.X+t.InsetX+bx), f(e.Y+l.Baseline), attr(bc), html.EscapeString(t.Bullet))
 		}
 		fmt.Fprintf(b, `<text x="%s" y="%s" text-anchor="%s">%s</text>`, f(x), f(e.Y+l.Baseline), anchor, html.EscapeString(l.Text))
 	}

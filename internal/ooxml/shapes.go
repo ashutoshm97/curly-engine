@@ -345,6 +345,21 @@ func (c *shapeCtx) text(tb *xmldom.Node, phTyp string, lay, mas *placeholder) (s
 				st.Bullet = "1."
 			}
 		}
+		if bc := p.Child("buClr"); bc != nil && st.BulletColor.IsZero() {
+			st.BulletColor = c.colors.resolve(bc)
+		}
+		if v, ok := p.Int("marL"); ok && st.IndentPt == 0 {
+			st.IndentPt = float64(v) / 12700
+		}
+		if v, ok := p.Int("indent"); ok && v < 0 && st.HangPt == 0 {
+			st.HangPt = float64(-v) / 12700
+		}
+		if v, ok := p.Path("spcBef/spcPts").Int("val"); ok && st.SpaceBeforePt == 0 {
+			st.SpaceBeforePt = float64(v) / 100
+		}
+		if v, ok := p.Path("lnSpc/spcPct").Int("val"); ok && st.LineHeight == 0 {
+			st.LineHeight = float64(v) / 100000
+		}
 	}
 	if st.Bullet == "none" {
 		st.Bullet = ""
@@ -392,20 +407,45 @@ func (c *shapeCtx) picture(n *xmldom.Node, tf transform) *rawdeck.Element {
 		}
 	}
 	el.Shadow = n.Path("spPr/effectLst/outerShdw") != nil
-	if emb := n.Path("blipFill/blip").Attr("r:embed"); emb != "" {
-		if r, ok := c.e.p.relsOf(c.part)[emb]; ok {
-			if data, err := c.e.p.bytes(r.Target); err == nil {
-				ref := blob.Hash(data)
-				mt := mime.TypeByExtension(path.Ext(r.Target))
-				if mt == "" {
-					mt = "application/octet-stream"
-				}
-				c.e.deck.AddAsset(ref, mt, data)
-				el.ImageRef = ref
+	if ln := n.Path("spPr/ln"); ln != nil && ln.Child("solidFill") != nil {
+		el.Line = c.colors.resolve(ln.Child("solidFill"))
+		el.LineWidthPt = 0.75
+		if w, ok := ln.Int("w"); ok {
+			el.LineWidthPt = float64(w) / 12700
+		}
+	}
+	blip := n.Path("blipFill/blip")
+	el.ImageRef = c.embedAsset(blip.Attr("r:embed"))
+	if ext := blip.Child("extLst"); ext != nil {
+		for _, e := range ext.Children {
+			if sb := e.Child("svgBlip"); sb != nil {
+				el.AltImageRef = c.embedAsset(sb.Attr("r:embed"))
 			}
 		}
 	}
 	return el
+}
+
+// embedAsset stores the part behind relationship emb as a deck asset.
+func (c *shapeCtx) embedAsset(emb string) string {
+	if emb == "" {
+		return ""
+	}
+	r, ok := c.e.p.relsOf(c.part)[emb]
+	if !ok {
+		return ""
+	}
+	data, err := c.e.p.bytes(r.Target)
+	if err != nil {
+		return ""
+	}
+	ref := blob.Hash(data)
+	mt := mime.TypeByExtension(path.Ext(r.Target))
+	if mt == "" {
+		mt = "application/octet-stream"
+	}
+	c.e.deck.AddAsset(ref, mt, data)
+	return ref
 }
 
 func (c *shapeCtx) frame(n *xmldom.Node, tf transform) *rawdeck.Element {

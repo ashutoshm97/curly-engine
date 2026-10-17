@@ -46,7 +46,13 @@
         const bg = cs.backgroundColor;
         const hasBg = bg && bg !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(bg);
         if (tag === 'img' || tag === 'svg' || tag === 'canvas' || tag === 'video') {
-          els.push({ kind: 'image', box: box(r), src: c.currentSrc || c.src || '', radius: parseFloat(cs.borderTopLeftRadius) || 0 });
+          let src = c.currentSrc || c.src || '';
+          if (tag === 'svg') {
+            try { src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(c)))); } catch (e) { src = ''; }
+          }
+          const bw = parseFloat(cs.borderTopWidth) || 0;
+          els.push({ kind: 'image', box: box(r), src, radius: parseFloat(cs.borderTopLeftRadius) || 0,
+            borderWidth: bw, borderColor: bw ? cs.borderTopColor : '', shadow: !!cs.boxShadow && cs.boxShadow !== 'none' });
           continue;
         }
         if (tag === 'table') {

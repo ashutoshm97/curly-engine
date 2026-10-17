@@ -33,6 +33,9 @@ func Compose(p *profile.StyleProfile, c content.Slide, n int) *scene.Slide {
 		}
 	}
 	for _, sl := range l.Slots {
+		if bx := k.listBox(sl, l); bx != nil {
+			s.Elements = append(s.Elements, bx)
+		}
 		if el := k.slot(sl, c); el != nil {
 			s.Elements = append(s.Elements, el)
 		}
@@ -54,7 +57,7 @@ func (k composer) abs(b profile.Box) (x, y, w, h float64) {
 	return b.X * k.w, b.Y * k.h, b.W * k.w, b.H * k.h
 }
 
-func (k composer) text(spec *profile.TextSpec, minStep string, paras []string, bullet string, w, h float64) *scene.Text {
+func (k composer) text(spec *profile.TextSpec, minStep string, paras []string, bullet string, w, h float64, prep ...func(*scene.Text)) *scene.Text {
 	if spec == nil {
 		spec = &profile.TextSpec{Font: "body", Step: "body", Color: "dk1"}
 	}
@@ -70,6 +73,9 @@ func (k composer) text(spec *profile.TextSpec, minStep string, paras []string, b
 	}
 	if minStep == "" {
 		steps = steps[:min(len(steps), 3)]
+	}
+	for _, f := range prep {
+		f(t)
 	}
 	Fit(t, w, h, steps)
 	return t
@@ -88,6 +94,11 @@ func (k composer) slot(sl profile.Slot, c content.Slide) *scene.Element {
 			bullet = comp.Marker.Glyph
 		}
 	}
+	var lvl *profile.BulletLevel
+	if comp != nil && comp.Bullets != nil && len(comp.Bullets.Levels) > 0 && sl.Type == "list" {
+		lvl = &comp.Bullets.Levels[0]
+		bullet = lvl.Glyph
+	}
 	switch sl.Type {
 	case "text", "list":
 		paras := textFor(sl, c)
@@ -98,10 +109,21 @@ func (k composer) slot(sl profile.Slot, c content.Slide) *scene.Element {
 			bullet = "•"
 		}
 		el.Kind = "text"
-		el.Text = k.text(spec, sl.MinStep, paras, bullet, w, h)
+		el.Text = k.text(spec, sl.MinStep, paras, bullet, w, h, func(t *scene.Text) {
+			if lvl == nil || t.Bullet == "" {
+				return
+			}
+			t.BulletColor = k.p.Color(lvl.Color)
+			t.IndentPt, t.HangPt, t.SpaceBefore = lvl.IndentPt, lvl.HangPt, lvl.SpaceBeforePt
+		})
 	case "image":
 		el.Kind = "image"
 		el.Image = &scene.Image{Placeholder: placeholder(c), Fill: k.p.Color(k.light()), TextColor: k.p.Color("dk1"), RadiusPt: sl.Radius}
+		if comp != nil && comp.Frame != nil {
+			fr := comp.Frame
+			el.Image.RadiusPt = max(el.Image.RadiusPt, fr.Radius)
+			el.Image.Line, el.Image.LineWidthPt, el.Image.Shadow = k.p.Color(fr.Line), fr.LineWidthPt, fr.Shadow
+		}
 	case "table":
 		if c.Table == nil || len(c.Table.Header) == 0 {
 			return nil
@@ -240,7 +262,7 @@ func (k composer) repeat(r profile.Repeat, items []content.Item) []*scene.Elemen
 			}
 			sx, sy, sw, sh := x+cs.Box.X*w, y+cs.Box.Y*h, cs.Box.W*w, cs.Box.H*h
 			out = append(out, &scene.Element{Kind: "text", Role: cs.Name, Slot: r.Name + "." + strconv.Itoa(i) + "." + cs.Name,
-				X: sx, Y: sy, W: sw, H: sh, Text: k.text(cs.Text, "caption", []string{v}, "", sw, sh)})
+				X: sx, Y: sy, W: sw, H: sh, Text: k.text(cs.Text, k.smallest(), []string{v}, "", sw, sh)})
 		}
 	}
 	return out
@@ -260,6 +282,9 @@ func (k composer) decor(d profile.Decor, n int) *scene.Element {
 		}
 		el.Kind = "image"
 		el.Image = &scene.Image{Ref: a.Ref, Mime: a.Mime}
+		if alt := k.p.Asset(a.Alt); a.Alt != "" && alt != nil {
+			el.Image.AltRef, el.Image.AltMime = alt.Ref, alt.Mime
+		}
 	case "text":
 		txt := strings.ReplaceAll(d.Text, "{n}", strconv.Itoa(n))
 		if txt == "" {
@@ -278,4 +303,33 @@ func orRect(g string) string {
 		return "rect"
 	}
 	return g
+}
+
+// smallest is the name of the smallest type-scale step.
+func (k composer) smallest() string {
+	name, size := "", 0.0
+	for _, st := range k.p.Tokens.TypeScale.Steps {
+		if name == "" || st.Size < size {
+			name, size = st.Name, st.Size
+		}
+	}
+	return name
+}
+
+// listBox draws a list component's panel unless the layout already has one there.
+func (k composer) listBox(sl profile.Slot, l *profile.Layout) *scene.Element {
+	comp := k.p.Component(sl.Component)
+	if sl.Type != "list" || comp == nil || comp.Box == nil {
+		return nil
+	}
+	for _, d := range l.Decor {
+		if d.Kind == "shape" && d.Box.X <= sl.Box.X && d.Box.Y <= sl.Box.Y && d.Box.X+d.Box.W >= sl.Box.X+sl.Box.W && d.Box.Y+d.Box.H >= sl.Box.Y+sl.Box.H {
+			return nil
+		}
+	}
+	x, y, w, h := k.abs(sl.Box)
+	pad := comp.Box.PadPt
+	bx := comp.Box
+	return &scene.Element{Kind: "shape", Role: "listBox", Slot: sl.Name + ".box", X: x - pad, Y: y - pad, W: w + 2*pad, H: h + 2*pad,
+		Shape: &scene.Shape{Geometry: orRect(bx.Kind), Fill: k.p.Color(bx.Fill), Line: k.p.Color(bx.Line), RadiusPt: bx.Radius, Shadow: bx.Shadow}}
 }
