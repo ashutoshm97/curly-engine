@@ -89,3 +89,15 @@ curl -H "Authorization: Bearer se_..." localhost:8080/api/profiles
 ```
 
 Passwords are bcrypt-hashed; sessions (30-day `HttpOnly`, `SameSite=Lax` cookie) and tokens are stored as SHA-256 hashes. Disable new signups with `-signup=false` or `SIGNUP=off`. Rows created before accounts existed have no owner and are hidden.
+
+## Postgres
+
+SQLite (a file in `-data`) is the default. To share one database between several server instances, point at Postgres instead:
+
+```bash
+styleengine serve -db 'postgres://user:pass@host:5432/styleengine?sslmode=disable'   # or DATABASE_URL=...
+```
+
+The schema is created on start. Job claiming uses `FOR UPDATE SKIP LOCKED`, so multiple instances can run workers against the same queue. Blobs still live under `-data`; use a shared volume when running more than one instance.
+
+Store tests run against Postgres when `TEST_POSTGRES_DSN` is set (CI does this via a `postgres:16` service).

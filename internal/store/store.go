@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -46,25 +47,54 @@ CREATE TABLE IF NOT EXISTS sessions (
 // ownedTables get a user_id column; added by ALTER so pre-auth databases migrate in place.
 var ownedTables = []string{"uploads", "profiles", "decks", "jobs"}
 
-type Store struct{ db *sql.DB }
+type Store struct{ db dbx }
 
-// Open opens (or creates) the database at path and applies the schema.
-func Open(path string) (*Store, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)", path)
+// Open connects to Postgres when dsn is a postgres:// URL, otherwise opens (or
+// creates) the SQLite file at dsn, and applies the schema.
+func Open(dsn string) (*Store, error) {
+	if IsPostgres(dsn) {
+		db, err := sql.Open("pgx", dsn)
+		if err != nil {
+			return nil, err
+		}
+		db.SetMaxOpenConns(20)
+		s := &Store{db: dbx{db, true}}
+		if err := s.migrate(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+		return s, nil
+	}
+	path := dsn
+	dsn = fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	// SQLite allows one writer; a single connection avoids SQLITE_BUSY churn and is fast with WAL.
 	db.SetMaxOpenConns(1)
-	if err := migrate(db); err != nil {
+	s := &Store{db: dbx{db, false}}
+	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	return s, nil
 }
 
-func migrate(db *sql.DB) error {
+func (s *Store) migrate() error {
+	db := s.db.DB
+	if s.db.pg {
+		if _, err := db.Exec(pgSchema()); err != nil {
+			return err
+		}
+		for _, t := range ownedTables {
+			if _, err := db.Exec(`ALTER TABLE ` + t + ` ADD COLUMN IF NOT EXISTS user_id TEXT`); err != nil {
+				return err
+			}
+		}
+		_, err := db.Exec(`CREATE INDEX IF NOT EXISTS profiles_user ON profiles(user_id, updated_at)`)
+		return err
+	}
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}

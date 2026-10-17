@@ -2,13 +2,36 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"net/url"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
 
+// open uses SQLite, or a fresh schema in TEST_POSTGRES_DSN when set.
+// (storetest.Open can't be used here: it imports this package.)
 func open(t *testing.T) *Store {
-	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	dsn := filepath.Join(t.TempDir(), "t.db")
+	if pg := os.Getenv("TEST_POSTGRES_DSN"); pg != "" {
+		schema := NewID("t")
+		admin, err := sql.Open("pgx", pg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`); admin.Close() })
+		u, _ := url.Parse(pg)
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		dsn = u.String()
+	}
+	s, err := Open(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,5 +112,45 @@ func TestCache(t *testing.T) {
 	}
 	if n, _ := s.CachePrune(ctx); n != 1 {
 		t.Errorf("pruned %d", n)
+	}
+}
+
+func TestConcurrentClaimNoDuplicates(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const n = 40
+	for i := 0; i < n; i++ {
+		if _, _, err := s.Enqueue(ctx, "noop", "{}", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				j, err := s.Claim(ctx)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if j == nil {
+					return
+				}
+				mu.Lock()
+				if seen[j.ID] {
+					t.Errorf("job %s claimed twice", j.ID)
+				}
+				seen[j.ID] = true
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if len(seen) != n {
+		t.Fatalf("claimed %d of %d jobs", len(seen), n)
 	}
 }

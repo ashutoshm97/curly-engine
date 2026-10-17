@@ -3,20 +3,16 @@ package jobs
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ashutoshm97/curly-engine/internal/store"
+	"github.com/ashutoshm97/curly-engine/internal/store/storetest"
 )
 
 func TestRunnerRetriesAndPublishes(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "j.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	r := NewRunner(st, 2)
 	var calls atomic.Int32
 	r.Handle("echo", func(ctx context.Context, j *store.Job, rep Reporter) (any, error) {

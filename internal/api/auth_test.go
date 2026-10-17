@@ -14,18 +14,16 @@ import (
 	"github.com/ashutoshm97/curly-engine/internal/blob"
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
 	"github.com/ashutoshm97/curly-engine/internal/store"
+	"github.com/ashutoshm97/curly-engine/internal/store/storetest"
 )
 
 func newTestServer(t *testing.T, signup bool) (*httptest.Server, *store.Store) {
 	dir := t.TempDir()
-	st, err := store.Open(filepath.Join(dir, "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := storetest.Open(t)
 	blobs, _ := blob.New(filepath.Join(dir, "blobs"))
 	srv := &Server{Store: st, Blobs: blobs, Runner: jobs.NewRunner(st, 1), Signup: signup}
 	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(func() { ts.Close(); st.Close() })
+	t.Cleanup(ts.Close)
 	return ts, st
 }
 

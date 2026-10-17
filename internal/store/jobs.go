@@ -61,8 +61,12 @@ func (s *Store) Enqueue(ctx context.Context, typ, payload, idemKey string) (*Job
 
 // Claim atomically moves the oldest ready job to running.
 func (s *Store) Claim(ctx context.Context) (*Job, error) {
+	lock := ""
+	if s.db.pg {
+		lock = " FOR UPDATE SKIP LOCKED" // concurrent workers never claim the same row
+	}
 	j, err := scanJob(s.db.QueryRowContext(ctx, `UPDATE jobs SET status=?, attempts=attempts+1, updated_at=?
-		WHERE id=(SELECT id FROM jobs WHERE status=? AND run_after<=? ORDER BY created_at LIMIT 1)
+		WHERE id=(SELECT id FROM jobs WHERE status=? AND run_after<=? ORDER BY created_at LIMIT 1`+lock+`)
 		RETURNING `+jobCols, JobRunning, now(), JobQueued, now()))
 	if err == sql.ErrNoRows {
 		return nil, nil
