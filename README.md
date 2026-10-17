@@ -77,3 +77,15 @@ GEMINI_API_KEY=... docker compose up --build   # use Gemini instead of the offli
 ```
 
 The image is a static Go binary plus Debian's Chromium (only needed for HTML deck extraction). It runs as a non-root user with `CHROME_NO_SANDBOX=1`, since containers usually lack the user namespaces Chrome's sandbox needs.
+
+## Accounts and API tokens
+
+Every `/api/*` route except signup/login needs a signed-in user; uploads, profiles, decks and jobs are only visible to their owner (others get 404).
+
+```bash
+curl -c jar -H 'Content-Type: application/json' -d '{"email":"me@example.com","password":"********"}' localhost:8080/api/auth/signup
+curl -b jar -X POST -d '{"name":"scripts"}' localhost:8080/api/tokens      # {"token":"se_..."} shown once
+curl -H "Authorization: Bearer se_..." localhost:8080/api/profiles
+```
+
+Passwords are bcrypt-hashed; sessions (30-day `HttpOnly`, `SameSite=Lax` cookie) and tokens are stored as SHA-256 hashes. Disable new signups with `-signup=false` or `SIGNUP=off`. Rows created before accounts existed have no owner and are hidden.

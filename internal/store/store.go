@@ -36,7 +36,15 @@ CREATE TABLE IF NOT EXISTS jobs (
   idem_key TEXT UNIQUE, run_after INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(status, run_after);
 CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value BLOB NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, pw_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, name TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
 `
+
+// ownedTables get a user_id column; added by ALTER so pre-auth databases migrate in place.
+var ownedTables = []string{"uploads", "profiles", "decks", "jobs"}
 
 type Store struct{ db *sql.DB }
 
@@ -49,11 +57,30 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows one writer; a single connection avoids SQLITE_BUSY churn and is fast with WAL.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+func migrate(db *sql.DB) error {
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	for _, t := range ownedTables {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name='user_id'`, t).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + t + ` ADD COLUMN user_id TEXT`); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS profiles_user ON profiles(user_id, updated_at)`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -67,9 +94,9 @@ func NewID(prefix string) string {
 func now() int64 { return time.Now().UnixMilli() }
 
 type Upload struct {
-	ID, SHA256, Filename, Kind string
-	Size                       int64
-	CreatedAt                  int64
+	ID, UserID, SHA256, Filename, Kind string
+	Size                               int64
+	CreatedAt                          int64
 }
 
 func (s *Store) CreateUpload(ctx context.Context, u *Upload) error {
@@ -77,19 +104,21 @@ func (s *Store) CreateUpload(ctx context.Context, u *Upload) error {
 		u.ID = NewID("up")
 	}
 	u.CreatedAt = now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO uploads VALUES (?,?,?,?,?,?)`, u.ID, u.SHA256, u.Filename, u.Kind, u.Size, u.CreatedAt)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO uploads (id,sha256,filename,kind,size,created_at,user_id) VALUES (?,?,?,?,?,?,?)`,
+		u.ID, u.SHA256, u.Filename, u.Kind, u.Size, u.CreatedAt, u.UserID)
 	return err
 }
 
 func (s *Store) GetUpload(ctx context.Context, id string) (*Upload, error) {
 	u := &Upload{}
-	err := s.db.QueryRowContext(ctx, `SELECT id, sha256, filename, kind, size, created_at FROM uploads WHERE id=?`, id).
-		Scan(&u.ID, &u.SHA256, &u.Filename, &u.Kind, &u.Size, &u.CreatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT id, sha256, filename, kind, size, created_at, COALESCE(user_id,'') FROM uploads WHERE id=?`, id).
+		Scan(&u.ID, &u.SHA256, &u.Filename, &u.Kind, &u.Size, &u.CreatedAt, &u.UserID)
 	return u, notFound(err)
 }
 
 type Profile struct {
 	ID             string `json:"id"`
+	UserID         string `json:"-"`
 	Name           string `json:"name"`
 	UploadID       string `json:"uploadId,omitempty"`
 	SourceSHA256   string `json:"sourceSha256,omitempty"`
@@ -107,8 +136,8 @@ func (s *Store) CreateProfile(ctx context.Context, p *Profile, xml []byte) error
 	}
 	defer tx.Rollback()
 	p.CreatedAt, p.UpdatedAt, p.CurrentVersion = now(), now(), 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO profiles VALUES (?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.UploadID, p.SourceSHA256, p.SourceType, 1, p.CreatedAt, p.UpdatedAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO profiles (id,name,upload_id,source_sha256,source_type,current_version,created_at,updated_at,user_id) VALUES (?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.UploadID, p.SourceSHA256, p.SourceType, 1, p.CreatedAt, p.UpdatedAt, p.UserID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO profile_versions VALUES (?,?,?,?,?)`, p.ID, 1, string(xml), "extracted", p.CreatedAt); err != nil {
@@ -140,11 +169,11 @@ func (s *Store) AddProfileVersion(ctx context.Context, id string, xml []byte, no
 	return v, tx.Commit()
 }
 
-const profileCols = `id, name, COALESCE(upload_id,''), COALESCE(source_sha256,''), COALESCE(source_type,''), current_version, created_at, updated_at`
+const profileCols = `id, name, COALESCE(upload_id,''), COALESCE(source_sha256,''), COALESCE(source_type,''), current_version, created_at, updated_at, COALESCE(user_id,'')`
 
 func scanProfile(r interface{ Scan(...any) error }) (*Profile, error) {
 	p := &Profile{}
-	err := r.Scan(&p.ID, &p.Name, &p.UploadID, &p.SourceSHA256, &p.SourceType, &p.CurrentVersion, &p.CreatedAt, &p.UpdatedAt)
+	err := r.Scan(&p.ID, &p.Name, &p.UploadID, &p.SourceSHA256, &p.SourceType, &p.CurrentVersion, &p.CreatedAt, &p.UpdatedAt, &p.UserID)
 	return p, err
 }
 
@@ -153,14 +182,14 @@ func (s *Store) GetProfile(ctx context.Context, id string) (*Profile, error) {
 	return p, notFound(err)
 }
 
-// FindProfileBySource returns a profile already extracted from identical bytes (dedupe).
-func (s *Store) FindProfileBySource(ctx context.Context, sha string) (*Profile, error) {
-	p, err := scanProfile(s.db.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE source_sha256=? ORDER BY created_at LIMIT 1`, sha))
+// FindProfileBySource returns the user's profile already extracted from identical bytes (dedupe).
+func (s *Store) FindProfileBySource(ctx context.Context, userID, sha string) (*Profile, error) {
+	p, err := scanProfile(s.db.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE source_sha256=? AND COALESCE(user_id,'')=? ORDER BY created_at LIMIT 1`, sha, userID))
 	return p, notFound(err)
 }
 
-func (s *Store) ListProfiles(ctx context.Context) ([]*Profile, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+profileCols+` FROM profiles ORDER BY updated_at DESC LIMIT 200`)
+func (s *Store) ListProfiles(ctx context.Context, userID string) ([]*Profile, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE user_id=? ORDER BY updated_at DESC LIMIT 200`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +219,7 @@ func (s *Store) ProfileXML(ctx context.Context, id string, version int) ([]byte,
 
 type Deck struct {
 	ID             string `json:"id"`
+	UserID         string `json:"-"`
 	ProfileID      string `json:"profileId"`
 	ProfileVersion int    `json:"profileVersion"`
 	Title          string `json:"title"`
@@ -208,17 +238,17 @@ func (s *Store) SaveDeck(ctx context.Context, d *Deck) error {
 		d.CreatedAt = now()
 	}
 	d.UpdatedAt = now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO decks VALUES (?,?,?,?,?,?,?,?,?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO decks (id,profile_id,profile_version,title,prompt,status,scene,created_at,updated_at,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status, scene=excluded.scene, updated_at=excluded.updated_at`,
-		d.ID, d.ProfileID, d.ProfileVersion, d.Title, d.Prompt, d.Status, string(d.Scene), d.CreatedAt, d.UpdatedAt)
+		d.ID, d.ProfileID, d.ProfileVersion, d.Title, d.Prompt, d.Status, string(d.Scene), d.CreatedAt, d.UpdatedAt, d.UserID)
 	return err
 }
 
 func (s *Store) GetDeck(ctx context.Context, id string) (*Deck, error) {
 	d := &Deck{}
 	var scene sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT id, profile_id, profile_version, COALESCE(title,''), COALESCE(prompt,''), status, scene, created_at, updated_at FROM decks WHERE id=?`, id).
-		Scan(&d.ID, &d.ProfileID, &d.ProfileVersion, &d.Title, &d.Prompt, &d.Status, &scene, &d.CreatedAt, &d.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT id, profile_id, profile_version, COALESCE(title,''), COALESCE(prompt,''), status, scene, created_at, updated_at, COALESCE(user_id,'') FROM decks WHERE id=?`, id).
+		Scan(&d.ID, &d.ProfileID, &d.ProfileVersion, &d.Title, &d.Prompt, &d.Status, &scene, &d.CreatedAt, &d.UpdatedAt, &d.UserID)
 	d.Scene = []byte(scene.String)
 	return d, notFound(err)
 }

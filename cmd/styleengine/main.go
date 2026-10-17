@@ -116,6 +116,7 @@ func serve(args []string) error {
 	addr := fs.String("addr", envOr("ADDR", ":8080"), "listen address")
 	dataDir := fs.String("data", envOr("DATA_DIR", "./data"), "data directory (SQLite + blobs)")
 	workers := fs.Int("workers", 4, "job workers")
+	signup := fs.Bool("signup", envOr("SIGNUP", "on") != "off", "allow new account signups (SIGNUP=off to disable)")
 	fs.Parse(args)
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -145,7 +146,7 @@ func serve(args []string) error {
 	defer stop()
 	wg := runner.Start(ctx)
 
-	srv := &api.Server{Store: st, Blobs: blobs, Runner: runner, Ingest: ing, Gen: gs}
+	srv := &api.Server{Store: st, Blobs: blobs, Runner: runner, Ingest: ing, Gen: gs, Signup: *signup}
 	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

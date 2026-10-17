@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -38,12 +39,12 @@ func (s *Server) createDeck(w http.ResponseWriter, r *http.Request) {
 		req.Slides = 8
 	}
 	req.Slides = min(req.Slides, 30)
-	meta, err := s.Store.GetProfile(r.Context(), req.ProfileID)
+	meta, err := s.ownProfile(r, req.ProfileID)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	d := &store.Deck{ProfileID: meta.ID, ProfileVersion: meta.CurrentVersion, Prompt: req.Prompt, Status: "queued"}
+	d := &store.Deck{UserID: userID(r), ProfileID: meta.ID, ProfileVersion: meta.CurrentVersion, Prompt: req.Prompt, Status: "queued"}
 	if err := s.Store.SaveDeck(r.Context(), d); err != nil {
 		storeErr(w, err)
 		return
@@ -58,6 +59,9 @@ func (s *Server) createDeck(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) loadScene(r *http.Request) (*store.Deck, *scene.Deck, error) {
 	d, err := s.Store.GetDeck(r.Context(), r.PathValue("id"))
+	if err == nil && d.UserID != userID(r) {
+		err = store.ErrNotFound
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -147,6 +151,10 @@ func (s *Server) regenerateSlide(w http.ResponseWriter, r *http.Request) {
 			Error(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+	}
+	if d, err := s.Store.GetDeck(r.Context(), r.PathValue("id")); err != nil || d.UserID != userID(r) {
+		storeErr(w, cmp.Or(err, store.ErrNotFound))
+		return
 	}
 	n, _ := strconv.Atoi(r.PathValue("n"))
 	sl, p, u, err := s.Gen.RegenerateSlide(r.Context(), r.PathValue("id"), n, req.Hint)
