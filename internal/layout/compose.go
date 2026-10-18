@@ -3,6 +3,7 @@
 package layout
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -124,6 +125,12 @@ func (k composer) slot(sl profile.Slot, c content.Slide) *scene.Element {
 			el.Image.RadiusPt = max(el.Image.RadiusPt, fr.Radius)
 			el.Image.Line, el.Image.LineWidthPt, el.Image.Shadow = k.p.Color(fr.Line), fr.LineWidthPt, fr.Shadow
 		}
+	case "chart":
+		if c.Chart == nil || len(c.Chart.Series) == 0 || len(c.Chart.Categories) == 0 {
+			return nil
+		}
+		el.Kind = "chart"
+		el.Chart = k.chart(comp, c.Chart)
 	case "table":
 		if c.Table == nil || len(c.Table.Header) == 0 {
 			return nil
@@ -332,4 +339,46 @@ func (k composer) listBox(sl profile.Slot, l *profile.Layout) *scene.Element {
 	bx := comp.Box
 	return &scene.Element{Kind: "shape", Role: "listBox", Slot: sl.Name + ".box", X: x - pad, Y: y - pad, W: w + 2*pad, H: h + 2*pad,
 		Shape: &scene.Shape{Geometry: orRect(bx.Kind), Fill: k.p.Color(bx.Fill), Line: k.p.Color(bx.Line), RadiusPt: bx.Radius, Shadow: bx.Shadow}}
+}
+
+// chart merges generated chart data with the profile's chart style.
+func (k composer) chart(comp *profile.Component, d *content.Chart) *scene.Chart {
+	spec := &profile.ChartSpec{Type: "col", Grouping: "clustered", Axis: &profile.ChartAxis{Gridlines: true}}
+	if comp != nil && comp.Chart != nil {
+		spec = comp.Chart
+	}
+	out := &scene.Chart{Type: spec.Type, Grouping: spec.Grouping, Legend: spec.Legend, GapWidth: spec.GapWidth, HolePct: spec.HolePct,
+		Font: k.p.Font("body").Family, FontSizePt: 10, TextColor: k.p.Color("dk1")}
+	out.Categories = d.Categories[:min(len(d.Categories), 12)]
+	for _, s := range d.Series[:min(len(d.Series), 6)] {
+		out.Series = append(out.Series, scene.ChartSeries{Name: s.Name, Values: s.Values[:min(len(s.Values), len(out.Categories))]})
+	}
+	if (out.Type == "pie" || out.Type == "doughnut") && len(out.Series) > 1 {
+		out.Series = out.Series[:1]
+	}
+	for _, s := range spec.Series {
+		if c := k.p.Color(s.Color); c != "" {
+			out.Colors = append(out.Colors, c)
+		}
+	}
+	if len(out.Colors) < 2 && (out.Type == "pie" || out.Type == "doughnut" || len(out.Series) > len(out.Colors)) {
+		for i := 1; i <= 6; i++ {
+			if c := k.p.Color(fmt.Sprintf("accent%d", i)); c != "" {
+				out.Colors = append(out.Colors, c)
+			}
+		}
+	}
+	if len(out.Colors) == 0 {
+		out.Colors = []string{k.p.Color("dk2"), k.p.Color("dk1")}
+	}
+	if l := spec.Labels; l != nil {
+		out.DataLabels, out.LabelColor, out.LabelSizePt, out.NumFmt = true, k.p.Color(l.Color), l.SizePt, l.NumFmt
+	}
+	if a := spec.Axis; a != nil {
+		out.Gridlines, out.GridColor, out.AxisColor = a.Gridlines, k.p.Color(a.Grid), k.p.Color(a.Line)
+		if a.SizePt > 0 {
+			out.FontSizePt = a.SizePt
+		}
+	}
+	return out
 }

@@ -232,6 +232,9 @@ func (b *builder) layouts(cs []*cluster) {
 				slot.MaxRows = max(3, int(box.H*b.p.HeightPt/rowH))
 			case rawdeck.RoleChart:
 				slot.Type = "chart"
+				if el.Chart != nil {
+					slot.Component = b.chartComponent(el.Chart)
+				}
 			}
 			l.Slots = append(l.Slots, slot)
 		}

@@ -1,6 +1,7 @@
 package ooxml
 
 import (
+	"fmt"
 	"mime"
 	"path"
 	"strings"
@@ -462,6 +463,7 @@ func (c *shapeCtx) frame(n *xmldom.Node, tf transform) *rawdeck.Element {
 		el.Table = c.table(gd.Child("tbl"))
 	case strings.HasSuffix(uri, "/chart"):
 		el.Kind, el.Role = rawdeck.KindChart, rawdeck.RoleChart
+		el.Chart = c.chart(gd)
 	default:
 		return nil
 	}
@@ -580,4 +582,121 @@ func (c *shapeCtx) table(tbl *xmldom.Node) *rawdeck.Table {
 		}
 	}
 	return t
+}
+
+// chart reads the style of the chart part referenced by a graphicFrame.
+func (c *shapeCtx) chart(gd *xmldom.Node) *rawdeck.Chart {
+	r, ok := c.e.p.relsOf(c.part)[gd.Child("chart").Attr("r:id")]
+	if !ok {
+		return nil
+	}
+	cs, err := c.e.p.node(r.Target)
+	if err != nil {
+		return nil
+	}
+	pa := cs.Path("chart/plotArea")
+	if pa == nil {
+		return nil
+	}
+	types := map[string]string{"barChart": "col", "bar3DChart": "col", "lineChart": "line", "line3DChart": "line", "pieChart": "pie",
+		"pie3DChart": "pie", "doughnutChart": "doughnut", "areaChart": "area", "area3DChart": "area", "scatterChart": "line"}
+	ch := &rawdeck.Chart{}
+	var plot *xmldom.Node
+	for _, k := range pa.Children {
+		if t, ok := types[k.Name]; ok {
+			ch.Type, plot = t, k
+			break
+		}
+	}
+	if plot == nil {
+		return nil
+	}
+	if ch.Type == "col" && plot.Child("barDir").Attr("val") == "bar" {
+		ch.Type = "bar"
+	}
+	ch.Grouping = plot.Child("grouping").Attr("val")
+	if v, ok := plot.Child("gapWidth").Int("val"); ok {
+		ch.GapWidth = int(v)
+	}
+	if v, ok := plot.Child("holeSize").Int("val"); ok {
+		ch.HolePct = int(v)
+	}
+	accent := func(i int) rawdeck.Color {
+		return c.colors.resolve(&xmldom.Node{Children: []*xmldom.Node{{Name: "schemeClr", Attrs: map[string]string{"val": fmt.Sprintf("accent%d", i%6+1)}}}})
+	}
+	fill := func(sp *xmldom.Node) (rawdeck.Color, bool) {
+		if f := sp.Child("solidFill"); f != nil {
+			return c.colors.resolve(f), true
+		}
+		if f := sp.Path("ln/solidFill"); f != nil && (ch.Type == "line") {
+			return c.colors.resolve(f), true
+		}
+		return rawdeck.Color{}, false
+	}
+	dl := plot.Child("dLbls")
+	for i, s := range plot.Children {
+		if s.Name != "ser" {
+			continue
+		}
+		idx := i
+		if v, ok := s.Child("idx").Int("val"); ok {
+			idx = int(v)
+		}
+		if ch.Type == "pie" || ch.Type == "doughnut" {
+			for j, p := range s.Children {
+				if p.Name == "dPt" {
+					if col, ok := fill(p.Child("spPr")); ok {
+						ch.Series = append(ch.Series, col)
+					} else {
+						ch.Series = append(ch.Series, accent(j))
+					}
+				}
+			}
+			if len(ch.Series) == 0 {
+				for j := 0; j < 6; j++ {
+					ch.Series = append(ch.Series, accent(j))
+				}
+			}
+		} else if col, ok := fill(s.Child("spPr")); ok {
+			ch.Series = append(ch.Series, col)
+		} else {
+			ch.Series = append(ch.Series, accent(idx))
+		}
+		if s.Child("dLbls") != nil {
+			dl = s.Child("dLbls")
+		}
+		if ch.Type == "pie" || ch.Type == "doughnut" {
+			break
+		}
+	}
+	if dl != nil && (dl.Child("showVal").Attr("val") == "1" || dl.Child("showPercent").Attr("val") == "1") {
+		ch.DataLabels = true
+		r := dl.Path("txPr/p/pPr/defRPr")
+		if f := r.Child("solidFill"); f != nil {
+			ch.LabelColor = c.colors.resolve(f)
+		}
+		if v, ok := r.Int("sz"); ok {
+			ch.LabelSizePt = float64(v) / 100
+		}
+		ch.NumFmt = dl.Child("numFmt").Attr("formatCode")
+	}
+	if lg := cs.Path("chart/legend"); lg != nil {
+		ch.Legend = lg.Child("legendPos").Attr("val")
+		if ch.Legend == "" {
+			ch.Legend = "r"
+		}
+	}
+	if g := pa.Path("valAx/majorGridlines"); g != nil {
+		ch.Gridlines = true
+		if f := g.Path("spPr/ln/solidFill"); f != nil {
+			ch.GridColor = c.colors.resolve(f)
+		}
+	}
+	if f := pa.Path("catAx/spPr/ln/solidFill"); f != nil {
+		ch.AxisColor = c.colors.resolve(f)
+	}
+	if v, ok := pa.Path("catAx/txPr/p/pPr/defRPr").Int("sz"); ok {
+		ch.FontSizePt = float64(v) / 100
+	}
+	return ch
 }

@@ -157,6 +157,35 @@ type Caption struct {
 	Text     *TextSpec `xml:"text" json:"text,omitempty"`
 }
 
+// ChartSpec is a chart's look; generated decks supply only the data.
+type ChartSpec struct {
+	Type     string        `xml:"type,attr" json:"type"`
+	Grouping string        `xml:"grouping,attr,omitempty" json:"grouping,omitempty"`
+	GapWidth int           `xml:"gapWidth,attr,omitempty" json:"gapWidth,omitempty"`
+	HolePct  int           `xml:"holePct,attr,omitempty" json:"holePct,omitempty"`
+	Legend   string        `xml:"legend,attr,omitempty" json:"legend,omitempty"`
+	Series   []SeriesStyle `xml:"series" json:"series,omitempty"`
+	Labels   *ChartLabels  `xml:"labels" json:"labels,omitempty"`
+	Axis     *ChartAxis    `xml:"axis" json:"axis,omitempty"`
+}
+
+type SeriesStyle struct {
+	Color string `xml:"color,attr" json:"color"`
+}
+
+type ChartLabels struct {
+	Color  string  `xml:"color,attr,omitempty" json:"color,omitempty"`
+	SizePt float64 `xml:"sizePt,attr,omitempty" json:"sizePt,omitempty"`
+	NumFmt string  `xml:"numFmt,attr,omitempty" json:"numFmt,omitempty"`
+}
+
+type ChartAxis struct {
+	Line      string  `xml:"line,attr,omitempty" json:"line,omitempty"`
+	Gridlines bool    `xml:"gridlines,attr,omitempty" json:"gridlines,omitempty"`
+	Grid      string  `xml:"grid,attr,omitempty" json:"grid,omitempty"`
+	SizePt    float64 `xml:"sizePt,attr,omitempty" json:"sizePt,omitempty"`
+}
+
 type TableCell struct {
 	PadPt         float64 `xml:"padPt,attr,omitempty" json:"padPt,omitempty"`
 	Border        string  `xml:"border,attr,omitempty" json:"border,omitempty"`
@@ -171,7 +200,7 @@ type ComponentSlot struct {
 
 type Component struct {
 	ID         string          `xml:"id,attr" json:"id"`
-	Type       string          `xml:"type,attr" json:"type"` // text|list|group|image|table
+	Type       string          `xml:"type,attr" json:"type"` // text|list|group|image|table|chart
 	Role       string          `xml:"role,attr,omitempty" json:"role,omitempty"`
 	Confidence float64         `xml:"confidence,attr,omitempty" json:"confidence,omitempty"`
 	Text       *TextSpec       `xml:"text" json:"text,omitempty"`
@@ -186,6 +215,7 @@ type Component struct {
 	Header  *TableHeader `xml:"header" json:"header,omitempty"`
 	Body    *TableBody   `xml:"body" json:"body,omitempty"`
 	Cell    *TableCell   `xml:"cell" json:"cell,omitempty"`
+	Chart   *ChartSpec   `xml:"chart" json:"chart,omitempty"`
 }
 
 type TableStyle struct {
