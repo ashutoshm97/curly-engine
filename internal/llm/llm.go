@@ -27,6 +27,12 @@ type Request struct {
 	Prompt      string
 	Schema      map[string]any
 	Temperature float64
+	Images      []Image // sent after the prompt (vision input)
+}
+
+type Image struct {
+	Mime string
+	Data []byte
 }
 
 type Usage struct {
@@ -117,7 +123,11 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 	if r.Schema != nil {
 		cfg["responseSchema"] = r.Schema
 	}
-	body := gRequest{Contents: []gcontent{{Role: "user", Parts: []part{{Text: r.Prompt}}}}, Config: cfg}
+	parts := []part{{Text: r.Prompt}}
+	for _, im := range r.Images {
+		parts = append(parts, part{InlineData: &inlineData{MimeType: im.Mime, Data: base64.StdEncoding.EncodeToString(im.Data)}})
+	}
+	body := gRequest{Contents: []gcontent{{Role: "user", Parts: parts}}, Config: cfg}
 	if r.System != "" {
 		body.System = &gcontent{Parts: []part{{Text: r.System}}}
 	}
@@ -234,6 +244,11 @@ func Key(r Request) string {
 	for _, v := range []string{r.Model, r.System, r.Prompt, string(s), fmt.Sprint(r.Temperature)} {
 		h.Write([]byte(v))
 		h.Write([]byte{0})
+	}
+	for _, im := range r.Images {
+		d := sha256.Sum256(im.Data)
+		h.Write([]byte(im.Mime))
+		h.Write(d[:])
 	}
 	return "llm:" + hex.EncodeToString(h.Sum(nil))
 }

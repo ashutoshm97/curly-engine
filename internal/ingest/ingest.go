@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/ashutoshm97/curly-engine/internal/profile"
 	"github.com/ashutoshm97/curly-engine/internal/rawdeck"
 	"github.com/ashutoshm97/curly-engine/internal/store"
+	"github.com/ashutoshm97/curly-engine/internal/vision"
 )
 
 const JobType = "ingest"
@@ -40,6 +42,8 @@ type Service struct {
 	Store *store.Store
 	Blobs *blob.Store
 	HTML  *htmlx.Extractor
+	// Vision, when set, infers the style of charts that are only pictures.
+	Vision *vision.ChartReader
 }
 
 // DetectKind classifies an upload by magic bytes, falling back to the extension.
@@ -62,6 +66,17 @@ func DetectKind(filename string, data []byte) (string, error) {
 
 // Extract parses a source file into a raw deck.
 func (s *Service) Extract(ctx context.Context, kind string, data []byte) (*rawdeck.Deck, error) {
+	d, err := s.extract(ctx, kind, data)
+	if err != nil || s.Vision == nil {
+		return d, err
+	}
+	if n, err := s.Vision.Annotate(ctx, d); err != nil {
+		slog.Warn("chart vision", "err", err, "annotated", n)
+	}
+	return d, nil
+}
+
+func (s *Service) extract(ctx context.Context, kind string, data []byte) (*rawdeck.Deck, error) {
 	switch kind {
 	case "pptx":
 		return ooxml.Extract(data, ooxml.DefaultLimits)

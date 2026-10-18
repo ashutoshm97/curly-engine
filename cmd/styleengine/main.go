@@ -31,6 +31,7 @@ import (
 	"github.com/ashutoshm97/curly-engine/internal/render"
 	"github.com/ashutoshm97/curly-engine/internal/scene"
 	"github.com/ashutoshm97/curly-engine/internal/store"
+	"github.com/ashutoshm97/curly-engine/internal/vision"
 )
 
 func main() {
@@ -82,7 +83,7 @@ func extract(args []string) error {
 	if err != nil {
 		return err
 	}
-	svc := &ingest.Service{}
+	svc := &ingest.Service{Vision: newVision(nil)}
 	if kind == "html" {
 		svc.HTML = htmlx.New(1)
 		defer svc.HTML.Close()
@@ -141,7 +142,7 @@ func serve(args []string) error {
 	defer html.Close()
 
 	runner := jobs.NewRunner(st, *workers)
-	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html}
+	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html, Vision: newVision(st)}
 	runner.Handle(ingest.JobType, ing.Handle)
 
 	writer := newWriter(st)
@@ -179,6 +180,17 @@ func newImages(st *store.Store, bs *blob.Store) *gen.Images {
 	g := llm.NewGemini(key)
 	g.HTTP.Timeout = 120 * time.Second
 	return &gen.Images{Client: g, Model: model, Blobs: bs, Store: st}
+}
+
+// newVision enables chart-style inference for picture charts when a key is set
+// (GEMINI_VISION_MODEL=off disables it). st may be nil.
+func newVision(st *store.Store) *vision.ChartReader {
+	key, model := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY"), envOr("GEMINI_VISION_MODEL", "gemini-3.8-flash")
+	if key == "" || model == "off" {
+		return nil
+	}
+	slog.Info("chart vision", "provider", "gemini", "model", model)
+	return &vision.ChartReader{Client: llm.NewCached(llm.NewGemini(key), st, 256, 30*24*time.Hour), Model: model, MaxCalls: 6}
 }
 
 func newWriter(st *store.Store) gen.Writer {
