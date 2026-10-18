@@ -4,6 +4,7 @@ package layout
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -361,11 +362,15 @@ func (k composer) chart(comp *profile.Component, d *content.Chart) *scene.Chart 
 			out.Colors = append(out.Colors, c)
 		}
 	}
-	if len(out.Colors) < 2 && (out.Type == "pie" || out.Type == "doughnut" || len(out.Series) > len(out.Colors)) {
-		for i := 1; i <= 6; i++ {
-			if c := k.p.Color(fmt.Sprintf("accent%d", i)); c != "" {
-				out.Colors = append(out.Colors, c)
-			}
+	need := len(out.Series)
+	if out.Type == "pie" || out.Type == "doughnut" {
+		need = len(out.Categories)
+	}
+	// More series than the source chart had: extend with unused theme accents.
+	for i := 1; i <= 6 && len(out.Colors) < need; i++ {
+		c := k.p.Color(fmt.Sprintf("accent%d", i))
+		if c != "" && !slices.Contains(out.Colors, c) {
+			out.Colors = append(out.Colors, c)
 		}
 	}
 	if len(out.Colors) == 0 {
