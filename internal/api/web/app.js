@@ -42,7 +42,7 @@ async function openProfile(id) {
   m.append(el('div', { class: 'muted' }, p.tokens.typeScale.steps.map((s) => `${s.name} ${s.size}pt`).join(' · ')));
   m.append(el('h3', {}, `Layouts (${p.layouts.length})`));
   const lg = el('div', { class: 'grid' });
-  for (const l of p.layouts) lg.append(el('div', { class: 'card' }, el('img', { src: `/api/profiles/${id}/layouts/${l.id}/preview`, alt: l.name }), el('div', { class: 'cap' }, `${l.id} · ${l.name} · ${l.kind}`)));
+  for (const l of p.layouts) lg.append(el('div', { class: 'card' }, el('img', { src: `/api/profiles/${id}/layouts/${l.id}/preview`, alt: l.name }), el('div', { class: 'cap' }, `${l.id} · ${l.name} · ${l.kind}${l.origin === 'llm' ? ' · AI' : ''}${l.hidden ? ' · hidden: ' + (l.hiddenReason || '') : ''}`)));
   m.append(lg);
   m.append(el('h3', {}, 'Generate a deck in this style'));
   const prompt = el('textarea', { id: 'prompt', placeholder: 'e.g. Quarterly business review for a B2B SaaS company: growth, churn, pricing changes, roadmap' });

@@ -194,6 +194,12 @@ func nonEmpty(s string) []string {
 
 func (k composer) table(sl profile.Slot, t *content.Table, h float64) *scene.Table {
 	ts := k.p.TableStyle(sl.TableStyle)
+	if c := k.p.Component(sl.Component); ts == nil && c != nil && c.Header != nil && c.Body != nil {
+		ts = &profile.TableStyle{Header: *c.Header, Body: *c.Body}
+		if c.Cell != nil {
+			ts.Border = c.Cell.Border
+		}
+	}
 	if ts == nil {
 		ts = &profile.TableStyle{Header: profile.TableHeader{Fill: "dk2", Text: "lt1", Bold: true, Step: "caption"},
 			Body: profile.TableBody{Fill: "lt1", Text: "dk1", Step: "caption"}}

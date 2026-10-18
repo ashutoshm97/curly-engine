@@ -33,6 +33,9 @@ type Writer interface {
 func Catalog(p *profile.StyleProfile) string {
 	var b strings.Builder
 	for _, l := range p.Layouts {
+		if l.Hidden {
+			continue
+		}
 		fmt.Fprintf(&b, "%s [%s] %s:", l.ID, l.Kind, l.Name)
 		for _, s := range l.Slots {
 			fmt.Fprintf(&b, " %s(%s", s.Name, s.Type)
