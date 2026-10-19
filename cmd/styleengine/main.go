@@ -20,9 +20,11 @@ import (
 
 	"github.com/ashutoshm97/curly-engine/internal/api"
 	"github.com/ashutoshm97/curly-engine/internal/blob"
+	"github.com/ashutoshm97/curly-engine/internal/gen"
 	"github.com/ashutoshm97/curly-engine/internal/htmlx"
 	"github.com/ashutoshm97/curly-engine/internal/ingest"
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
+	"github.com/ashutoshm97/curly-engine/internal/llm"
 	"github.com/ashutoshm97/curly-engine/internal/normalize"
 	"github.com/ashutoshm97/curly-engine/internal/store"
 )
@@ -129,6 +131,20 @@ func serve(args []string) error {
 	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html}
 	runner.Handle(ingest.JobType, ing.Handle)
 
+	var writer gen.Writer = gen.Offline{}
+	if key := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY"); key != "" {
+		writer = &gen.LLMWriter{
+			Client:    llm.NewCached(llm.NewGemini(key), st, 1024, 7*24*time.Hour),
+			PlanModel: envOr("GEMINI_PLAN_MODEL", "gemini-2.5-flash"),
+			FillModel: envOr("GEMINI_FILL_MODEL", "gemini-2.5-flash"),
+		}
+		slog.Info("llm", "provider", "gemini")
+	} else {
+		slog.Warn("llm", "provider", "offline", "hint", "set GEMINI_API_KEY to use Gemini")
+	}
+	gs := &gen.Service{Store: st, Writer: writer, Concurrency: 4, AssetURL: func(ref string) string { return "/api/assets/" + ref }}
+	runner.Handle(gen.JobType, gs.Handle)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	wg := runner.Start(ctx)
@@ -147,6 +163,15 @@ func serve(args []string) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func envOr(k, def string) string {

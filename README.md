@@ -62,3 +62,7 @@ internal/jobs       SQLite-backed job queue, worker pool, SSE event fan-out
 internal/blob       content-addressed local file store
 internal/api        HTTP/JSON + SSE
 ```
+
+## Generation
+
+`POST /api/decks {"profileId","prompt","slides"}` plans and writes content with Gemini (`GEMINI_API_KEY`; models via `GEMINI_PLAN_MODEL` / `GEMINI_FILL_MODEL`, default `gemini-2.5-flash`) or a deterministic offline writer when no key is set. Slides stream over `/api/jobs/{id}/events` as SVG; export with `GET /api/decks/{id}/export.pptx`. The embedded UI is served at `/`.
