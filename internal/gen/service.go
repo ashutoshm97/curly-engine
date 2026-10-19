@@ -232,6 +232,8 @@ func Preview(p *profile.StyleProfile, l *profile.Layout) *scene.Slide {
 		switch {
 		case s.Type == "table":
 			c.Table = &content.Table{Header: []string{"Column A", "Column B", "Column C"}, Rows: [][]string{{"Row 1", "12", "34%"}, {"Row 2", "56", "78%"}, {"Row 3", "90", "12%"}}}
+		case s.Type == "chart":
+			c.Chart = sampleChart()
 		case s.Type == "image":
 			c.ImagePrompt = "Image"
 		case s.Name == "title":

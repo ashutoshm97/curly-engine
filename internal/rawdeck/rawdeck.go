@@ -116,6 +116,7 @@ type Element struct {
 	AltImageRef     string     `json:"altImageRef,omitempty"` // browser-renderable alternative (e.g. SVG next to an EMF)
 	ImageRef        string     `json:"imageRef,omitempty"`    // sha256 of the image bytes
 	Table           *Table     `json:"table,omitempty"`
+	Chart           *Chart     `json:"chart,omitempty"`
 	GroupID         int        `json:"groupId,omitempty"`
 	Inherited       bool       `json:"inherited,omitempty"` // drawn from master/layout, not the slide itself
 	Children        []*Element `json:"children,omitempty"`
@@ -179,4 +180,22 @@ func (d *Deck) AddAsset(ref, mime string, data []byte) {
 		d.Assets = map[string]Asset{}
 	}
 	d.Assets[ref] = Asset{Ref: ref, Mime: mime, Data: data}
+}
+
+// Chart is the style of a native chart (data is not kept).
+type Chart struct {
+	Type        string  `json:"type"`               // col|bar|line|area|pie|doughnut
+	Grouping    string  `json:"grouping,omitempty"` // clustered|stacked|percentStacked|standard
+	Series      []Color `json:"series,omitempty"`   // series colors (pie: slice colors)
+	DataLabels  bool    `json:"dataLabels,omitempty"`
+	LabelColor  Color   `json:"labelColor,omitempty"`
+	LabelSizePt float64 `json:"labelSizePt,omitempty"`
+	NumFmt      string  `json:"numFmt,omitempty"`
+	Legend      string  `json:"legend,omitempty"` // b|t|l|r, empty = none
+	Gridlines   bool    `json:"gridlines,omitempty"`
+	GridColor   Color   `json:"gridColor,omitempty"`
+	AxisColor   Color   `json:"axisColor,omitempty"`
+	FontSizePt  float64 `json:"fontSizePt,omitempty"`
+	GapWidth    int     `json:"gapWidth,omitempty"`
+	HolePct     int     `json:"holePct,omitempty"`
 }

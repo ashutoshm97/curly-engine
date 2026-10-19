@@ -96,6 +96,8 @@ func (Offline) Fill(_ context.Context, p *profile.StyleProfile, o *Outline, i in
 		case "table":
 			s.Table = &content.Table{Header: []string{"Area", "Today", "Target"}, Rows: [][]string{
 				{"Adoption", "35%", "60%"}, {"Cycle time", "12 days", "5 days"}, {"Cost per unit", "$4.10", "$2.80"}, {"NPS", "31", "45"}}}
+		case "chart":
+			s.Chart = sampleChart()
 		case "image":
 			s.ImagePrompt = "Photo illustrating " + t
 		}
@@ -104,4 +106,9 @@ func (Offline) Fill(_ context.Context, p *profile.StyleProfile, o *Outline, i in
 		s.Items = []content.Item{{Value: "38%", Label: "Growth year over year"}, {Value: "2.4x", Label: "Faster delivery"}, {Value: "120k", Label: "Active users"}}
 	}
 	return s, llm.Usage{}, nil
+}
+
+func sampleChart() *content.Chart {
+	return &content.Chart{Categories: []string{"Q1", "Q2", "Q3", "Q4"}, Series: []content.ChartSeries{
+		{Name: "Revenue", Values: []float64{12.4, 13.1, 13.8, 14.6}}, {Name: "Costs", Values: []float64{8.2, 8.4, 8.5, 8.7}}}}
 }

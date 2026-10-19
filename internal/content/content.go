@@ -20,6 +20,7 @@ type Slide struct {
 	Bullets     []string `json:"bullets,omitempty"`
 	Items       []Item   `json:"items,omitempty"`
 	Table       *Table   `json:"table,omitempty"`
+	Chart       *Chart   `json:"chart,omitempty"`
 	ImagePrompt string   `json:"imagePrompt,omitempty"`
 	Notes       string   `json:"notes,omitempty"`
 }
@@ -27,6 +28,17 @@ type Slide struct {
 type Item struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+}
+
+// Chart is chart data only; its look comes from the profile.
+type Chart struct {
+	Categories []string      `json:"categories"`
+	Series     []ChartSeries `json:"series"`
+}
+
+type ChartSeries struct {
+	Name   string    `json:"name"`
+	Values []float64 `json:"values"`
 }
 
 type Table struct {

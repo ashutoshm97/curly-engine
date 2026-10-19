@@ -49,6 +49,7 @@ func PPTX(d *scene.Deck, p *profile.StyleProfile, blobs Blobs) ([]byte, error) {
 	media := map[string]string{} // ref -> part name
 	exts := map[string]bool{}
 	var slideRels []string
+	charts := 0
 	for i, s := range d.Slides {
 		rels := []string{fmt.Sprintf(`<Relationship Id="rId1" Type="%sslideLayout" Target="../slideLayouts/slideLayout1.xml"/>`, relNS)}
 		body, err := slideXML(s, blobs, func(ref string, data []byte) string {
@@ -67,6 +68,15 @@ func PPTX(d *scene.Deck, p *profile.StyleProfile, blobs Blobs) ([]byte, error) {
 			}
 			id := fmt.Sprintf("rId%d", len(rels)+1)
 			rels = append(rels, fmt.Sprintf(`<Relationship Id="%s" Type="%simage" Target="../media/%s"/>`, id, relNS, name))
+			return id
+		}, func(x string) string {
+			charts++
+			name := fmt.Sprintf("chart%d.xml", charts)
+			if err := put("ppt/charts/"+name, x); err != nil {
+				return ""
+			}
+			id := fmt.Sprintf("rId%d", len(rels)+1)
+			rels = append(rels, fmt.Sprintf(`<Relationship Id="%s" Type="%schart" Target="../charts/%s"/>`, id, relNS, name))
 			return id
 		})
 		if err != nil {
@@ -94,6 +104,9 @@ func PPTX(d *scene.Deck, p *profile.StyleProfile, blobs Blobs) ([]byte, error) {
 	ct.WriteString(`<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`)
 	for i := range d.Slides {
 		fmt.Fprintf(&ct, `<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, i+1)
+	}
+	for i := 1; i <= charts; i++ {
+		fmt.Fprintf(&ct, `<Override PartName="/ppt/charts/chart%d.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`, i)
 	}
 	ct.WriteString(`<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`)
 	ct.WriteString(`<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`)
@@ -196,7 +209,7 @@ func geom(g string, radius, w, h float64) string {
 	return `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
 }
 
-func slideXML(s *scene.Slide, blobs Blobs, embed func(ref string, data []byte) string) (string, error) {
+func slideXML(s *scene.Slide, blobs Blobs, embed func(ref string, data []byte) string, chart func(xml string) string) (string, error) {
 	var b strings.Builder
 	b.WriteString(hdr + `<p:sld ` + nsAll + `><p:cSld><p:bg><p:bgPr>` + solid(s.Background) + `<a:effectLst/></p:bgPr></p:bg><p:spTree>` + grpHdr)
 	id := 2
@@ -248,6 +261,11 @@ func slideXML(s *scene.Slide, blobs Blobs, embed func(ref string, data []byte) s
 			}
 			fmt.Fprintf(&b, `<p:pic><p:nvPicPr><p:cNvPr id="%d" name="%s"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>%s<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>%s</p:spPr></p:pic>`,
 				id, name, rid, xfrm(&box), picLine(im))
+		case "chart":
+			if rid := chart(chartXML(e.Chart)); rid != "" {
+				fmt.Fprintf(&b, `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="%d" name="%s"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="%s"/></a:graphicData></a:graphic></p:graphicFrame>`,
+					id, name, emu(e.X), emu(e.Y), emu(e.W), emu(e.H), rid)
+			}
 		case "table":
 			b.WriteString(tableXML(e, id, name))
 		}

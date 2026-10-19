@@ -32,6 +32,7 @@ type Element struct {
 	Shape *Shape  `json:"shape,omitempty"`
 	Image *Image  `json:"image,omitempty"`
 	Table *Table  `json:"table,omitempty"`
+	Chart *Chart  `json:"chart,omitempty"`
 }
 
 type Text struct {
@@ -97,4 +98,30 @@ type Table struct {
 	BandFill   string     `json:"bandFill,omitempty"`
 	BodyText   string     `json:"bodyText"`
 	Border     string     `json:"border,omitempty"`
+}
+
+type Chart struct {
+	Type        string        `json:"type"`
+	Grouping    string        `json:"grouping,omitempty"`
+	Categories  []string      `json:"categories"`
+	Series      []ChartSeries `json:"series"`
+	Colors      []string      `json:"colors"` // per series (pie: per slice)
+	DataLabels  bool          `json:"dataLabels,omitempty"`
+	LabelColor  string        `json:"labelColor,omitempty"`
+	LabelSizePt float64       `json:"labelSizePt,omitempty"`
+	NumFmt      string        `json:"numFmt,omitempty"`
+	Legend      string        `json:"legend,omitempty"`
+	Gridlines   bool          `json:"gridlines,omitempty"`
+	GridColor   string        `json:"gridColor,omitempty"`
+	AxisColor   string        `json:"axisColor,omitempty"`
+	Font        string        `json:"font"`
+	FontSizePt  float64       `json:"fontSizePt"`
+	TextColor   string        `json:"textColor"`
+	GapWidth    int           `json:"gapWidth,omitempty"`
+	HolePct     int           `json:"holePct,omitempty"`
+}
+
+type ChartSeries struct {
+	Name   string    `json:"name"`
+	Values []float64 `json:"values"`
 }

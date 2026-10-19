@@ -29,6 +29,8 @@ func SVG(s *scene.Slide, width, height float64, asset AssetURL) string {
 			text(&b, e, e.Text)
 		case "table":
 			table(&b, e)
+		case "chart":
+			chartSVG(&b, e)
 		}
 	}
 	b.WriteString(`</svg>`)

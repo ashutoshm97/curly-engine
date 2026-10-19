@@ -713,3 +713,25 @@ func (b *builder) tableComponent(styleID string) string {
 	b.p.Components = append(b.p.Components, c)
 	return c.ID
 }
+
+// chartComponent stores a native chart's style.
+func (b *builder) chartComponent(ch *rawdeck.Chart) string {
+	spec := &profile.ChartSpec{Type: ch.Type, Grouping: ch.Grouping, GapWidth: ch.GapWidth, HolePct: ch.HolePct, Legend: ch.Legend}
+	for _, c := range ch.Series {
+		spec.Series = append(spec.Series, profile.SeriesStyle{Color: b.pal.ref(c)})
+	}
+	if ch.DataLabels {
+		spec.Labels = &profile.ChartLabels{Color: b.pal.ref(ch.LabelColor), SizePt: ch.LabelSizePt, NumFmt: ch.NumFmt}
+	}
+	if spec.Type != "pie" && spec.Type != "doughnut" {
+		spec.Axis = &profile.ChartAxis{Line: b.pal.ref(ch.AxisColor), Gridlines: ch.Gridlines, Grid: b.pal.ref(ch.GridColor), SizePt: ch.FontSizePt}
+	}
+	sig := fmt.Sprintf("chart|%v|%v|%v|%v|%v|%v|%v|%v|%v", spec.Type, spec.Grouping, spec.GapWidth, spec.HolePct, spec.Legend, spec.Series, spec.Labels != nil, ch.LabelColor, ch.Gridlines)
+	if id, ok := b.comps[sig]; ok {
+		return id
+	}
+	id := b.newID("C.chart")
+	b.comps[sig] = id
+	b.p.Components = append(b.p.Components, profile.Component{ID: id, Type: "chart", Role: "chart", Chart: spec})
+	return id
+}

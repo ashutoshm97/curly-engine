@@ -42,6 +42,15 @@ func Catalog(p *profile.StyleProfile) string {
 			if s.MaxRows > 0 {
 				fmt.Fprintf(&b, " ≤%d rows ≤%d cols", s.MaxRows, s.MaxCols)
 			}
+			if s.Type == "chart" {
+				if c := p.Component(s.Component); c != nil && c.Chart != nil {
+					fmt.Fprintf(&b, " %s", c.Chart.Type)
+					if c.Chart.Type == "pie" || c.Chart.Type == "doughnut" {
+						b.WriteString(" 1 series")
+					}
+				}
+				b.WriteString(" ≤12 categories ≤6 series")
+			}
 			b.WriteString(")")
 		}
 		for _, r := range l.Repeats {
@@ -79,7 +88,12 @@ var slideSchema = map[string]any{
 		"items":       map[string]any{"type": "ARRAY", "items": map[string]any{"type": "OBJECT", "properties": map[string]any{"value": map[string]any{"type": "STRING"}, "label": map[string]any{"type": "STRING"}}, "required": []string{"value", "label"}}},
 		"table":       map[string]any{"type": "OBJECT", "properties": map[string]any{"header": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}}, "rows": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}}}}},
 		"imagePrompt": map[string]any{"type": "STRING"},
-		"notes":       map[string]any{"type": "STRING"},
+		"chart": map[string]any{"type": "OBJECT", "properties": map[string]any{
+			"categories": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}},
+			"series": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "OBJECT", "properties": map[string]any{
+				"name": map[string]any{"type": "STRING"}, "values": map[string]any{"type": "ARRAY", "items": map[string]any{"type": "NUMBER"}}}, "required": []string{"name", "values"}}}},
+			"required": []string{"categories", "series"}},
+		"notes": map[string]any{"type": "STRING"},
 	},
 	"required": []string{"title"},
 }
@@ -111,7 +125,7 @@ func (w *LLMWriter) Fill(ctx context.Context, p *profile.StyleProfile, o *Outlin
 	for _, s := range o.Slides {
 		titles = append(titles, s.Title)
 	}
-	msg := fmt.Sprintf("LAYOUTS:\n%s\nDeck: %q (%d slides: %s)\nTopic: %s\n\nWrite slide %d using layout %s. Title: %q. Intent: %s.\nFill only the fields that layout's slots need (title/subtitle/body/bullets/items/table/imagePrompt); keep within the char limits. Each bullet is one short point (no bullet characters or line breaks).",
+	msg := fmt.Sprintf("LAYOUTS:\n%s\nDeck: %q (%d slides: %s)\nTopic: %s\n\nWrite slide %d using layout %s. Title: %q. Intent: %s.\nFill only the fields that layout's slots need (title/subtitle/body/bullets/items/table/chart/imagePrompt); keep within the char limits. A chart is numbers only: categories plus series of values, one value per category. Each bullet is one short point (no bullet characters or line breaks).",
 		Catalog(p), o.Title, len(o.Slides), strings.Join(titles, " | "), prompt, i+1, it.Layout, it.Title, it.Intent)
 	raw, u, err := w.Client.GenerateJSON(ctx, llm.Request{Model: w.FillModel, System: system, Prompt: msg, Schema: slideSchema, Temperature: 0.7})
 	if err != nil {
