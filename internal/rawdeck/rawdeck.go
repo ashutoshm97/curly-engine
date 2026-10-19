@@ -66,16 +66,21 @@ type Color struct {
 func (c Color) IsZero() bool { return c.Hex == "" && c.Token == "" }
 
 type TextStyle struct {
-	Font       string  `json:"font,omitempty"`
-	FontRole   string  `json:"fontRole,omitempty"` // heading|body when theme-referenced
-	SizePt     float64 `json:"sizePt,omitempty"`
-	Bold       bool    `json:"bold,omitempty"`
-	Italic     bool    `json:"italic,omitempty"`
-	Color      Color   `json:"color,omitempty"`
-	Align      string  `json:"align,omitempty"` // l|ctr|r|just
-	Bullet     string  `json:"bullet,omitempty"`
-	Paragraphs int     `json:"paragraphs,omitempty"`
-	MaxLevel   int     `json:"maxLevel,omitempty"`
+	Font          string  `json:"font,omitempty"`
+	FontRole      string  `json:"fontRole,omitempty"` // heading|body when theme-referenced
+	SizePt        float64 `json:"sizePt,omitempty"`
+	Bold          bool    `json:"bold,omitempty"`
+	Italic        bool    `json:"italic,omitempty"`
+	Color         Color   `json:"color,omitempty"`
+	Align         string  `json:"align,omitempty"` // l|ctr|r|just
+	Bullet        string  `json:"bullet,omitempty"`
+	Paragraphs    int     `json:"paragraphs,omitempty"`
+	MaxLevel      int     `json:"maxLevel,omitempty"`
+	BulletColor   Color   `json:"bulletColor,omitempty"`
+	IndentPt      float64 `json:"indentPt,omitempty"`
+	HangPt        float64 `json:"hangPt,omitempty"`
+	SpaceBeforePt float64 `json:"spaceBeforePt,omitempty"`
+	LineHeight    float64 `json:"lineHeight,omitempty"`
 }
 
 type Table struct {
@@ -107,7 +112,9 @@ type Element struct {
 	Geometry        string     `json:"geometry,omitempty"`
 	RadiusPx        float64    `json:"radiusPx,omitempty"`
 	Shadow          bool       `json:"shadow,omitempty"`
-	ImageRef        string     `json:"imageRef,omitempty"` // sha256 of the image bytes
+	LineWidthPt     float64    `json:"lineWidthPt,omitempty"`
+	AltImageRef     string     `json:"altImageRef,omitempty"` // browser-renderable alternative (e.g. SVG next to an EMF)
+	ImageRef        string     `json:"imageRef,omitempty"`    // sha256 of the image bytes
 	Table           *Table     `json:"table,omitempty"`
 	GroupID         int        `json:"groupId,omitempty"`
 	Inherited       bool       `json:"inherited,omitempty"` // drawn from master/layout, not the slide itself

@@ -28,7 +28,10 @@ type builder struct {
 	p      *profile.StyleProfile
 	comps  map[string]string // signature -> component id
 	assets map[string]string // image ref -> asset id
-	steps  []profile.Step
+	// listBox maps list elements to the panel drawn behind them.
+	listBox    map[*rawdeck.Element]*profile.ShapeSpec
+	tableComps map[string]string // table style id -> component id
+	steps      []profile.Step
 }
 
 // Build normalizes a deck into a profile. Asset refs listed in the profile
@@ -40,7 +43,7 @@ func Build(d *rawdeck.Deck, opts Options) (*profile.StyleProfile, error) {
 	if opts.ClusterThreshold == 0 {
 		opts.ClusterThreshold = 0.4
 	}
-	b := &builder{d: d, opts: opts, pal: newPalette(), comps: map[string]string{}, assets: map[string]string{}}
+	b := &builder{d: d, opts: opts, pal: newPalette(), comps: map[string]string{}, assets: map[string]string{}, tableComps: map[string]string{}}
 	b.p = &profile.StyleProfile{
 		ID: opts.ID, Name: opts.Name, Version: 1, SchemaVersion: profile.SchemaVersion,
 		Source: "sha256:" + d.SourceHash, SourceType: d.SourceType,
@@ -57,6 +60,7 @@ func Build(d *rawdeck.Deck, opts Options) (*profile.StyleProfile, error) {
 	b.typeScale()
 	b.spacing()
 	b.tables()
+	b.listBoxes()
 	clusters := b.cluster()
 	b.layouts(clusters)
 	b.placements()
@@ -169,7 +173,9 @@ func (b *builder) classify() {
 					}
 				case rawdeck.KindImage:
 					cx, cy := el.Box.CX(), el.Box.CY()
-					if el.Box.Area() < 0.03 && (cx < 0.25 || cx > 0.75) && (cy < 0.2 || cy > 0.8) {
+					if b.vectorLogo(el) {
+						el.Role = rawdeck.RoleLogo
+					} else if el.Box.Area() < 0.03 && (cx < 0.25 || cx > 0.75) && (cy < 0.2 || cy > 0.8) {
 						el.Role = rawdeck.RoleLogo
 					} else if el.Inherited || el.Box.Area() < 0.015 {
 						el.Role = rawdeck.RoleDecor // repeated art or small icons, not content slots
@@ -425,15 +431,24 @@ func (b *builder) component(el *rawdeck.Element, list bool) string {
 	ts := b.textSpec(el)
 	typ := "text"
 	var marker *profile.Marker
+	var bullets *profile.Bullets
+	var box *profile.ShapeSpec
 	if list {
 		typ = "list"
 		glyph := el.Style.Bullet
 		if glyph == "" {
 			glyph = "•"
 		}
-		marker = &profile.Marker{Glyph: glyph}
+		lvl := profile.BulletLevel{N: 1, Glyph: glyph, IndentPt: round(el.Style.IndentPt, 1), HangPt: round(el.Style.HangPt, 1),
+			SpaceBeforePt: round(el.Style.SpaceBeforePt, 1), LineHeight: round(el.Style.LineHeight, 2)}
+		if !el.Style.BulletColor.IsZero() {
+			lvl.Color = b.pal.ref(el.Style.BulletColor)
+		}
+		marker = &profile.Marker{Glyph: glyph, Color: lvl.Color}
+		bullets = &profile.Bullets{Levels: []profile.BulletLevel{lvl}}
+		box = b.listBox[el]
 	}
-	sig := fmt.Sprintf("%s|%s|%+v|%+v", typ, el.Role, *ts, marker)
+	sig := fmt.Sprintf("%s|%s|%+v|%+v|%+v|%+v", typ, el.Role, *ts, marker, bullets, box)
 	if id, ok := b.comps[sig]; ok {
 		return id
 	}
@@ -446,7 +461,7 @@ func (b *builder) component(el *rawdeck.Element, list bool) string {
 		id = fmt.Sprintf("%s%d", base, i)
 	}
 	b.comps[sig] = id
-	b.p.Components = append(b.p.Components, profile.Component{ID: id, Type: typ, Role: string(el.Role), Text: ts, Marker: marker})
+	b.p.Components = append(b.p.Components, profile.Component{ID: id, Type: typ, Role: string(el.Role), Text: ts, Marker: marker, Bullets: bullets, Box: box})
 	return id
 }
 
@@ -539,6 +554,162 @@ func (b *builder) asset(ref string) string {
 	}
 	id := fmt.Sprintf("A%d", len(b.p.Assets)+1)
 	b.assets[ref] = id
-	b.p.Assets = append(b.p.Assets, profile.Asset{ID: id, Ref: ref, Kind: "image", Mime: a.Mime})
+	b.p.Assets = append(b.p.Assets, profile.Asset{ID: id, Ref: ref, Kind: "image", Mime: a.Mime, Format: format(a.Mime)})
 	return id
+}
+
+func (b *builder) newID(base string) string {
+	id := base
+	for i := 2; b.p.Component(id) != nil; i++ {
+		id = fmt.Sprintf("%s%d", base, i)
+	}
+	return id
+}
+
+// assetFor registers el's picture (and its browser-renderable twin) and
+// classifies it as a logo, icon or content image.
+func (b *builder) assetFor(el *rawdeck.Element) string {
+	id := b.asset(el.ImageRef)
+	if id == "" {
+		return ""
+	}
+	kind := "image"
+	switch {
+	case el.Role == rawdeck.RoleLogo:
+		kind = "logo"
+	case el.Box.Area() < 0.015:
+		kind = "icon"
+	}
+	alt := ""
+	if el.AltImageRef != "" {
+		alt = b.asset(el.AltImageRef)
+	}
+	for _, ref := range []string{id, alt} {
+		if a := b.p.Asset(ref); a != nil && (a.Kind == "image" || kind == "logo") {
+			a.Kind = kind
+		}
+	}
+	if a := b.p.Asset(id); a != nil && alt != "" {
+		a.Alt = alt
+	}
+	return id
+}
+
+func format(mime string) string {
+	switch mime {
+	case "image/svg+xml":
+		return "svg"
+	case "image/x-emf", "image/emf":
+		return "emf"
+	case "image/x-wmf", "image/wmf":
+		return "wmf"
+	}
+	if t, ok := strings.CutPrefix(mime, "image/"); ok {
+		return t
+	}
+	return ""
+}
+
+// vectorLogo reports wide vector pictures (EMF/WMF/SVG wordmarks), which are
+// logos rather than photo slots even when they are large.
+func (b *builder) vectorLogo(el *rawdeck.Element) bool {
+	m := b.d.Assets[el.ImageRef].Mime
+	if !strings.Contains(m, "emf") && !strings.Contains(m, "wmf") && !strings.Contains(m, "svg") {
+		return false
+	}
+	aspect := el.Box.W * b.d.WidthPt / (el.Box.H * b.d.HeightPt)
+	return aspect > 2.5 && el.Box.Area() < 0.12
+}
+
+func contains(outer, inner rawdeck.Box) bool {
+	const e = 0.005
+	return inner.X >= outer.X-e && inner.Y >= outer.Y-e && inner.X+inner.W <= outer.X+outer.W+e && inner.Y+inner.H <= outer.Y+outer.H+e
+}
+
+// listBoxes finds the smallest filled panel that encloses each bullet list.
+func (b *builder) listBoxes() {
+	b.listBox = map[*rawdeck.Element]*profile.ShapeSpec{}
+	for _, s := range b.d.Slides {
+		for _, el := range s.Elements {
+			if el.Kind != rawdeck.KindText || el.Role != rawdeck.RoleBody || (el.Style.Paragraphs < 2 && el.Style.Bullet == "") {
+				continue
+			}
+			var best *rawdeck.Element
+			for _, sh := range s.Elements {
+				if sh.Kind != rawdeck.KindShape || (sh.Fill.IsZero() && sh.Line.IsZero()) || len(sh.Children) > 0 {
+					continue
+				}
+				if sh.Box.Area() > 0.6 || !contains(sh.Box, el.Box) {
+					continue
+				}
+				if best == nil || sh.Box.Area() < best.Box.Area() {
+					best = sh
+				}
+			}
+			if best == nil {
+				continue
+			}
+			pad := min((el.Box.X-best.Box.X)*b.d.WidthPt, (el.Box.Y-best.Box.Y)*b.d.HeightPt)
+			box := &profile.ShapeSpec{Kind: orRect(best.Geometry), Fill: b.pal.ref(best.Fill), Line: b.pal.ref(best.Line),
+				Radius: round(best.RadiusPx, 1), Shadow: best.Shadow, PadPt: round(max(pad, 0), 1)}
+			b.listBox[el] = box
+		}
+	}
+}
+
+func orRect(g string) string {
+	if g == "" {
+		return "rect"
+	}
+	return g
+}
+
+// imageComponent captures how a picture slot is framed and captioned.
+func (b *builder) imageComponent(el *rawdeck.Element, s *rawdeck.Slide) string {
+	fr := &profile.Frame{Geometry: orRect(el.Geometry), Radius: round(el.RadiusPx, 1), Shadow: el.Shadow, Fit: "cover"}
+	if !el.Line.IsZero() {
+		fr.Line, fr.LineWidthPt = b.pal.ref(el.Line), round(el.LineWidthPt, 2)
+	}
+	var capt *profile.Caption
+	for _, t := range s.Elements {
+		if t.Kind != rawdeck.KindText || t.Role == rawdeck.RoleTitle || t.Style.SizePt == 0 || t.Style.SizePt > 16 {
+			continue
+		}
+		gap := t.Box.Y - (el.Box.Y + el.Box.H)
+		overlap := min(t.Box.X+t.Box.W, el.Box.X+el.Box.W) - max(t.Box.X, el.Box.X)
+		if gap >= -0.01 && gap < 0.06 && overlap > 0.5*min(t.Box.W, el.Box.W) {
+			capt = &profile.Caption{Position: "below", GapPt: round(max(gap, 0)*b.d.HeightPt, 1), Text: b.textSpec(t)}
+			break
+		}
+	}
+	sig := fmt.Sprintf("image|%+v", *fr)
+	if capt != nil {
+		sig += fmt.Sprintf("|%s|%v|%+v", capt.Position, capt.GapPt, *capt.Text)
+	}
+	if id, ok := b.comps[sig]; ok {
+		return id
+	}
+	id := b.newID("C.image")
+	b.comps[sig] = id
+	b.p.Components = append(b.p.Components, profile.Component{ID: id, Type: "image", Role: "image", Frame: fr, Caption: capt})
+	return id
+}
+
+// tableComponent exposes a table style as a component with header, body and cell parts.
+func (b *builder) tableComponent(styleID string) string {
+	if id, ok := b.tableComps[styleID]; ok {
+		return id
+	}
+	ts := b.p.TableStyle(styleID)
+	if ts == nil {
+		return ""
+	}
+	h, bd := ts.Header, ts.Body
+	c := profile.Component{ID: b.newID("C.table"), Type: "table", Role: "table", Header: &h, Body: &bd}
+	if ts.Border != "" {
+		c.Cell = &profile.TableCell{Border: ts.Border}
+	}
+	b.tableComps[styleID] = c.ID
+	b.p.Components = append(b.p.Components, c)
+	return c.ID
 }

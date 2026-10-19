@@ -379,7 +379,20 @@ Abridged example:
   </tokens>
   <components>
     <component id="C.title" type="text" role="title"><text font="heading" step="h1" color="dk1" align="l" bold="true"/></component>
-    <component id="C.body" type="list" role="body"><text font="body" step="body" color="dk1"/><marker glyph="•"/></component>
+    <component id="C.body" type="list" role="body">
+      <text font="body" step="body" color="dk1"/><marker glyph="•"/>
+      <bullets><level n="1" glyph="•" color="accent1" indentPt="27" hangPt="27" spaceBeforePt="6"/></bullets>
+      <box kind="roundRect" fill="lt2" radius="6" padPt="12"/>          <!-- panel behind the list, if any -->
+    </component>
+    <component id="C.image" type="image" role="image">
+      <frame geometry="roundRect" line="accent4" lineWidthPt="1" radius="8" shadow="true" fit="cover"/>
+      <caption position="below" gapPt="6"><text font="body" step="caption" color="accent2"/></caption>
+    </component>
+    <component id="C.table" type="table" role="table">
+      <header fill="accent2" text="lt1" bold="true" step="caption"/>
+      <body fill="lt1" bandRows="true" bandFill="lt2" text="dk1" step="caption"/>
+      <cell border="lt1"/>
+    </component>
     <component id="C.card" type="group" role="card">
       <shape kind="roundRect" fill="c1" radius="8"/>
       <slot name="value" box="0.1 0.13 0.8 0.4"><text font="body" step="h2" color="accent1" bold="true"/></slot>
@@ -406,7 +419,11 @@ Abridged example:
     <placement element="pageNumber" anchor="bl" box="0.05 0.91 0.1 0.05" support="1"/>
     <sequence>L1 → (L2 | L3 | L4)* → L1</sequence>
   </patterns>
-  <assets><asset id="A1" ref="&lt;sha256&gt;" kind="image" mime="image/png"/></assets>
+  <assets>
+    <asset id="A1" ref="&lt;sha256&gt;" kind="logo" mime="image/png" format="png"/>
+    <asset id="A2" ref="&lt;sha256&gt;" kind="logo" mime="image/x-emf" format="emf" alt="A3"/>  <!-- alt: SVG twin for browsers -->
+    <asset id="A3" ref="&lt;sha256&gt;" kind="logo" mime="image/svg+xml" format="svg"/>
+  </assets>
 </styleProfile>
 ```
 

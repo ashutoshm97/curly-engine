@@ -123,6 +123,44 @@ type ShapeSpec struct {
 	Line   string  `xml:"line,attr,omitempty" json:"line,omitempty"`
 	Radius float64 `xml:"radius,attr,omitempty" json:"radius,omitempty"`
 	Shadow bool    `xml:"shadow,attr,omitempty" json:"shadow,omitempty"`
+	PadPt  float64 `xml:"padPt,attr,omitempty" json:"padPt,omitempty"`
+}
+
+// BulletLevel is the marker and paragraph spacing of one list level.
+type BulletLevel struct {
+	N             int     `xml:"n,attr" json:"n"`
+	Glyph         string  `xml:"glyph,attr" json:"glyph"`
+	Color         string  `xml:"color,attr,omitempty" json:"color,omitempty"`
+	IndentPt      float64 `xml:"indentPt,attr,omitempty" json:"indentPt,omitempty"`
+	HangPt        float64 `xml:"hangPt,attr,omitempty" json:"hangPt,omitempty"`
+	SpaceBeforePt float64 `xml:"spaceBeforePt,attr,omitempty" json:"spaceBeforePt,omitempty"`
+	LineHeight    float64 `xml:"lineHeight,attr,omitempty" json:"lineHeight,omitempty"`
+}
+
+type Bullets struct {
+	Levels []BulletLevel `xml:"level" json:"levels"`
+}
+
+// Frame is how pictures are framed: border, corners, shadow and fit.
+type Frame struct {
+	Geometry    string  `xml:"geometry,attr,omitempty" json:"geometry,omitempty"`
+	Line        string  `xml:"line,attr,omitempty" json:"line,omitempty"`
+	LineWidthPt float64 `xml:"lineWidthPt,attr,omitempty" json:"lineWidthPt,omitempty"`
+	Radius      float64 `xml:"radius,attr,omitempty" json:"radius,omitempty"`
+	Shadow      bool    `xml:"shadow,attr,omitempty" json:"shadow,omitempty"`
+	Fit         string  `xml:"fit,attr,omitempty" json:"fit,omitempty"` // cover|contain
+}
+
+type Caption struct {
+	Position string    `xml:"position,attr" json:"position"` // below|above
+	GapPt    float64   `xml:"gapPt,attr,omitempty" json:"gapPt,omitempty"`
+	Text     *TextSpec `xml:"text" json:"text,omitempty"`
+}
+
+type TableCell struct {
+	PadPt         float64 `xml:"padPt,attr,omitempty" json:"padPt,omitempty"`
+	Border        string  `xml:"border,attr,omitempty" json:"border,omitempty"`
+	BorderWidthPt float64 `xml:"borderWidthPt,attr,omitempty" json:"borderWidthPt,omitempty"`
 }
 
 type ComponentSlot struct {
@@ -133,13 +171,21 @@ type ComponentSlot struct {
 
 type Component struct {
 	ID         string          `xml:"id,attr" json:"id"`
-	Type       string          `xml:"type,attr" json:"type"` // text|list|group
+	Type       string          `xml:"type,attr" json:"type"` // text|list|group|image|table
 	Role       string          `xml:"role,attr,omitempty" json:"role,omitempty"`
 	Confidence float64         `xml:"confidence,attr,omitempty" json:"confidence,omitempty"`
 	Text       *TextSpec       `xml:"text" json:"text,omitempty"`
 	Marker     *Marker         `xml:"marker" json:"marker,omitempty"`
 	Shape      *ShapeSpec      `xml:"shape" json:"shape,omitempty"`
 	Slots      []ComponentSlot `xml:"slot" json:"slots,omitempty"`
+	// Sub-components.
+	Bullets *Bullets     `xml:"bullets" json:"bullets,omitempty"`
+	Box     *ShapeSpec   `xml:"box" json:"box,omitempty"` // panel behind a list
+	Frame   *Frame       `xml:"frame" json:"frame,omitempty"`
+	Caption *Caption     `xml:"caption" json:"caption,omitempty"`
+	Header  *TableHeader `xml:"header" json:"header,omitempty"`
+	Body    *TableBody   `xml:"body" json:"body,omitempty"`
+	Cell    *TableCell   `xml:"cell" json:"cell,omitempty"`
 }
 
 type TableStyle struct {
@@ -237,9 +283,12 @@ type Transition struct {
 
 type Asset struct {
 	ID   string `xml:"id,attr" json:"id"`
-	Ref  string `xml:"ref,attr" json:"ref"` // sha256 in the blob store
-	Kind string `xml:"kind,attr" json:"kind"`
+	Ref  string `xml:"ref,attr" json:"ref"`   // sha256 in the blob store
+	Kind string `xml:"kind,attr" json:"kind"` // logo|icon|image
 	Mime string `xml:"mime,attr" json:"mime"`
+	// Format is the file type (svg|png|jpeg|emf|…); Alt names a browser-renderable twin asset.
+	Format string `xml:"format,attr,omitempty" json:"format,omitempty"`
+	Alt    string `xml:"alt,attr,omitempty" json:"alt,omitempty"`
 }
 
 func (p *StyleProfile) MarshalIndent() ([]byte, error) {

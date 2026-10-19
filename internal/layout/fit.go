@@ -36,10 +36,17 @@ func place(t *scene.Text, size, lh, w float64) ([]scene.Line, float64) {
 	indent := 0.0
 	if t.Bullet != "" {
 		indent = size * 1.1
+		if t.IndentPt > 0 {
+			indent = t.IndentPt
+		}
 	}
 	for pi, p := range t.Paragraphs {
 		if pi > 0 && t.Bullet != "" {
-			y += adv * 0.35
+			if t.SpaceBefore > 0 {
+				y += t.SpaceBefore
+			} else {
+				y += adv * 0.35
+			}
 		}
 		for li, l := range Wrap(p, size, w-indent, t.Bold) {
 			out = append(out, scene.Line{Text: l, X: insetX + indent, Baseline: insetY + y + size*0.9 + (lh-1)*size/2, Bullet: t.Bullet != "" && li == 0})
