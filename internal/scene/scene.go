@@ -13,6 +13,8 @@ type Deck struct {
 type Slide struct {
 	Index      int        `json:"index"`
 	Layout     string     `json:"layout"`
+	Title      string     `json:"title,omitempty"`
+	Intent     string     `json:"intent,omitempty"`
 	Background string     `json:"background"`
 	Elements   []*Element `json:"elements"`
 	Notes      string     `json:"notes,omitempty"`

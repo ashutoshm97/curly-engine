@@ -1,6 +1,7 @@
 // Command styleengine extracts components.xml from PPTX/HTML decks and serves the API.
 //
 //	styleengine extract deck.pptx -o components.xml
+//	styleengine generate -profile components.xml -prompt "Q3 review" -o deck.pptx
 //	styleengine serve -addr :8080 -data ./data
 package main
 
@@ -26,6 +27,9 @@ import (
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
 	"github.com/ashutoshm97/curly-engine/internal/llm"
 	"github.com/ashutoshm97/curly-engine/internal/normalize"
+	"github.com/ashutoshm97/curly-engine/internal/profile"
+	"github.com/ashutoshm97/curly-engine/internal/render"
+	"github.com/ashutoshm97/curly-engine/internal/scene"
 	"github.com/ashutoshm97/curly-engine/internal/store"
 )
 
@@ -37,6 +41,8 @@ func main() {
 	switch os.Args[1] {
 	case "extract":
 		err = extract(os.Args[2:])
+	case "generate":
+		err = generate(os.Args[2:])
 	case "serve":
 		err = serve(os.Args[2:])
 	default:
@@ -49,7 +55,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: styleengine extract <deck.pptx|deck.html> [-o components.xml]\n       styleengine serve [-addr :8080] [-data ./data]")
+	fmt.Fprintln(os.Stderr, "usage: styleengine extract <deck.pptx|deck.html> [-o components.xml]\n       styleengine generate -profile components.xml -prompt \"...\" [-slides 8] [-o deck.pptx] [-svg dir] [-data ./data]\n       styleengine serve [-addr :8080] [-data ./data]")
 	os.Exit(2)
 }
 
@@ -131,17 +137,7 @@ func serve(args []string) error {
 	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html}
 	runner.Handle(ingest.JobType, ing.Handle)
 
-	var writer gen.Writer = gen.Offline{}
-	if key := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY"); key != "" {
-		writer = &gen.LLMWriter{
-			Client:    llm.NewCached(llm.NewGemini(key), st, 1024, 7*24*time.Hour),
-			PlanModel: envOr("GEMINI_PLAN_MODEL", "gemini-2.5-flash"),
-			FillModel: envOr("GEMINI_FILL_MODEL", "gemini-2.5-flash"),
-		}
-		slog.Info("llm", "provider", "gemini")
-	} else {
-		slog.Warn("llm", "provider", "offline", "hint", "set GEMINI_API_KEY to use Gemini")
-	}
+	writer := newWriter(st)
 	gs := &gen.Service{Store: st, Writer: writer, Concurrency: 4, AssetURL: func(ref string) string { return "/api/assets/" + ref }}
 	runner.Handle(gen.JobType, gs.Handle)
 
@@ -149,7 +145,7 @@ func serve(args []string) error {
 	defer stop()
 	wg := runner.Start(ctx)
 
-	srv := &api.Server{Store: st, Blobs: blobs, Runner: runner, Ingest: ing}
+	srv := &api.Server{Store: st, Blobs: blobs, Runner: runner, Ingest: ing, Gen: gs}
 	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -162,6 +158,78 @@ func serve(args []string) error {
 		return err
 	}
 	wg.Wait()
+	return nil
+}
+
+// newWriter returns the Gemini writer when a key is set, otherwise the offline writer. st may be nil.
+func newWriter(st *store.Store) gen.Writer {
+	key := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY")
+	if key == "" {
+		slog.Warn("llm", "provider", "offline", "hint", "set GEMINI_API_KEY to use Gemini")
+		return gen.Offline{}
+	}
+	slog.Info("llm", "provider", "gemini")
+	return &gen.LLMWriter{
+		Client:    llm.NewCached(llm.NewGemini(key), st, 1024, 7*24*time.Hour),
+		PlanModel: envOr("GEMINI_PLAN_MODEL", "gemini-2.5-flash"),
+		FillModel: envOr("GEMINI_FILL_MODEL", "gemini-2.5-flash"),
+	}
+}
+
+func generate(args []string) error {
+	fs := flag.NewFlagSet("generate", flag.ExitOnError)
+	profPath := fs.String("profile", "", "components.xml to generate in the style of")
+	prompt := fs.String("prompt", "", "what the deck is about")
+	slides := fs.Int("slides", 8, "number of slides (1-30)")
+	out := fs.String("o", "deck.pptx", "output .pptx")
+	svgDir := fs.String("svg", "", "also write one SVG per slide into this directory")
+	dataDir := fs.String("data", "", "data dir whose blobs/ holds profile assets (optional)")
+	fs.Parse(args)
+	if *profPath == "" || strings.TrimSpace(*prompt) == "" {
+		usage()
+	}
+	x, err := os.ReadFile(*profPath)
+	if err != nil {
+		return err
+	}
+	p, err := profile.Parse(x)
+	if err != nil {
+		return err
+	}
+	var blobs render.Blobs
+	if *dataDir != "" {
+		bs, err := blob.New(filepath.Join(*dataDir, "blobs"))
+		if err != nil {
+			return err
+		}
+		blobs = bs.Get
+	}
+	start := time.Now()
+	sc, u, err := gen.Generate(context.Background(), p, newWriter(nil), *prompt, *slides, 4, gen.Hooks{
+		Slide: func(s *scene.Slide, total int) { fmt.Fprintf(os.Stderr, "slide %d/%d: %s\n", s.Index, total, s.Title) },
+	})
+	if err != nil {
+		return err
+	}
+	pptx, err := render.PPTX(sc, p, blobs)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*out, pptx, 0o644); err != nil {
+		return err
+	}
+	if *svgDir != "" {
+		if err := os.MkdirAll(*svgDir, 0o755); err != nil {
+			return err
+		}
+		for _, s := range sc.Slides {
+			name := filepath.Join(*svgDir, fmt.Sprintf("slide%02d.svg", s.Index))
+			if err := os.WriteFile(name, []byte(render.SVG(s, sc.WidthPt, sc.HeightPt, func(ref string) string { return "" })), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s: %d slides in %s (tokens in %d / out %d)\n", *out, len(sc.Slides), time.Since(start).Round(time.Millisecond), u.InputTokens, u.OutputTokens)
 	return nil
 }
 

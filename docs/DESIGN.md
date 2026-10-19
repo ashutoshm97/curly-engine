@@ -481,7 +481,8 @@ Techniques:
 | `GET/PUT /api/profiles/{id}/components.xml` | Download · edit (creates a new version) |
 | `GET /api/profiles/{id}/preview` | Every layout rendered with sample content (SVG) |
 | `POST /api/decks` | Generate a deck `{profileId, prompt, outline, slides}` and return a job |
-| `GET /api/decks/{id}` · `/preview` · `/export.pptx` | Scene JSON · HTML preview · editable PPTX |
+| `GET /api/decks/{id}` · `/slides/{n}` · `/export.pptx` | Scene JSON · slide SVG · editable PPTX |
+| `POST /api/decks/{id}/slides/{n}/regenerate` `{hint}` | Rewrite one slide (one Fill call), returns SVG |
 
 CLI: `styleengine serve`, `styleengine extract <file> [-o components.xml]`, `styleengine generate -profile components.xml -prompt "…" -o deck.pptx`.
 
