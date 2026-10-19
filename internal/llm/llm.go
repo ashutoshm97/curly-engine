@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,7 +54,13 @@ func NewGemini(key string) *Gemini {
 }
 
 type part struct {
-	Text string `json:"text"`
+	Text       string      `json:"text,omitempty"`
+	InlineData *inlineData `json:"inlineData,omitempty"`
+}
+
+type inlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"` // base64
 }
 
 type gcontent struct {
@@ -114,8 +121,44 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 	if r.System != "" {
 		body.System = &gcontent{Parts: []part{{Text: r.System}}}
 	}
+	gr, err := g.call(ctx, r.Model, body)
+	if err != nil {
+		return nil, Usage{}, err
+	}
+	var out bytes.Buffer
+	for _, p := range gr.Candidates[0].Content.Parts {
+		out.WriteString(p.Text)
+	}
+	return out.Bytes(), Usage{InputTokens: gr.Usage.Prompt, OutputTokens: gr.Usage.Output, CachedTokens: gr.Usage.Cached}, nil
+}
+
+// GenerateImage asks a Gemini image model (e.g. gemini-2.5-flash-image) for one
+// image and returns its bytes and MIME type. aspect is e.g. "16:9" or "".
+func (g *Gemini) GenerateImage(ctx context.Context, model, prompt, aspect string) ([]byte, string, error) {
+	cfg := map[string]any{"responseModalities": []string{"IMAGE"}}
+	if aspect != "" {
+		cfg["imageConfig"] = map[string]any{"aspectRatio": aspect}
+	}
+	gr, err := g.call(ctx, model, gRequest{Contents: []gcontent{{Role: "user", Parts: []part{{Text: prompt}}}}, Config: cfg})
+	if err != nil {
+		return nil, "", err
+	}
+	for _, p := range gr.Candidates[0].Content.Parts {
+		if p.InlineData != nil && strings.HasPrefix(p.InlineData.MimeType, "image/") {
+			data, err := base64.StdEncoding.DecodeString(p.InlineData.Data)
+			if err != nil {
+				return nil, "", fmt.Errorf("gemini image: %w", err)
+			}
+			return data, p.InlineData.MimeType, nil
+		}
+	}
+	return nil, "", errors.New("gemini image: no image in response")
+}
+
+// call POSTs models/{model}:generateContent, retrying 429/5xx (honoring RetryInfo).
+func (g *Gemini) call(ctx context.Context, model string, body gRequest) (*gResponse, error) {
 	payload, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/models/%s:generateContent", g.BaseURL, r.Model)
+	url := fmt.Sprintf("%s/models/%s:generateContent", g.BaseURL, model)
 	var lastErr error
 	var wait time.Duration
 	for attempt := 0; attempt <= g.Retries; attempt++ {
@@ -124,7 +167,7 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 			select {
 			case <-time.After(wait):
 			case <-ctx.Done():
-				return nil, Usage{}, ctx.Err()
+				return nil, ctx.Err()
 			}
 		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
@@ -135,7 +178,7 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 			lastErr = err
 			continue
 		}
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 		resp.Body.Close()
 		var gr gResponse
 		_ = json.Unmarshal(data, &gr)
@@ -146,7 +189,7 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 			}
 			// A long server delay means a daily quota is exhausted: fail fast.
 			if wait = gr.retryDelay(); wait > MaxRetryDelay {
-				return nil, Usage{}, fmt.Errorf("%w (retry in %s)", lastErr, wait.Round(time.Minute))
+				return nil, fmt.Errorf("%w (retry in %s)", lastErr, wait.Round(time.Minute))
 			}
 			continue
 		}
@@ -155,18 +198,14 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 			if gr.Error != nil {
 				msg = gr.Error.Message
 			}
-			return nil, Usage{}, fmt.Errorf("gemini: %s", msg)
+			return nil, fmt.Errorf("gemini: %s", msg)
 		}
 		if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-			return nil, Usage{}, errors.New("gemini: empty response")
+			return nil, errors.New("gemini: empty response")
 		}
-		var out bytes.Buffer
-		for _, p := range gr.Candidates[0].Content.Parts {
-			out.WriteString(p.Text)
-		}
-		return out.Bytes(), Usage{InputTokens: gr.Usage.Prompt, OutputTokens: gr.Usage.Output, CachedTokens: gr.Usage.Cached}, nil
+		return &gr, nil
 	}
-	return nil, Usage{}, fmt.Errorf("gemini: retries exhausted: %w", lastErr)
+	return nil, fmt.Errorf("gemini: retries exhausted: %w", lastErr)
 }
 
 func firstLine(s string) string {

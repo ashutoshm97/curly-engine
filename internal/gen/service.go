@@ -48,6 +48,7 @@ type Service struct {
 	Writer      Writer
 	Concurrency int
 	AssetURL    render.AssetURL
+	Images      *Images // nil: image slots keep placeholders
 }
 
 func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (any, error) {
@@ -66,6 +67,7 @@ func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (
 	}
 	rep.Stage("plan")
 	sc, usage, err := Generate(ctx, p, s.Writer, d.Prompt, pl.Slides, s.Concurrency, Hooks{
+		Decorate: s.Images.Fill,
 		Outline: func(o *Outline) {
 			rep.Data(SlideEvent{Type: "outline", Total: len(o.Slides), Title: o.Title})
 			rep.Stage("fill")
@@ -111,6 +113,7 @@ func (s *Service) RegenerateSlide(ctx context.Context, deckID string, n int, hin
 	if err != nil {
 		return nil, nil, u, err
 	}
+	s.Images.Fill(ctx, sl)
 	b, _ := json.Marshal(sc)
 	d.Scene = b
 	return sl, p, u, s.Store.SaveDeck(ctx, d)
@@ -120,8 +123,9 @@ var ErrNoSlide = errors.New("no such slide")
 
 // Hooks receive progress while a deck is generated.
 type Hooks struct {
-	Outline func(o *Outline)
-	Slide   func(s *scene.Slide, total int)
+	Outline  func(o *Outline)
+	Decorate func(ctx context.Context, s *scene.Slide) // e.g. image generation, before Slide
+	Slide    func(s *scene.Slide, total int)
 }
 
 // Generate plans n slides, fills them concurrently and composes each into a scene slide.
@@ -146,6 +150,9 @@ func Generate(ctx context.Context, p *profile.StyleProfile, w Writer, prompt str
 				return fmt.Errorf("slide %d: %w", i+1, err)
 			}
 			sl := compose(p, o, i, c)
+			if h.Decorate != nil {
+				h.Decorate(gctx, sl)
+			}
 			mu.Lock()
 			sc.Slides[i] = sl
 			usage = add(usage, u)

@@ -65,6 +65,12 @@ async function generate(profileId, prompt, slides, out, btn) {
       if (d.type === 'outline') { status.textContent = `“${d.title}” – writing ${d.total} slides…`; grid.innerHTML = ''; for (let i = 1; i <= d.total; i++) grid.append(el('div', { class: 'card slide pending', id: `s${i}` }, `Slide ${i}`)); }
       if (d.type === 'slide') { if (!first) first = performance.now() - t0; const c = $(`#s${d.index}`); c.className = 'card slide'; c.innerHTML = d.svg; }
     });
+    // Fast (e.g. offline) jobs can finish before the event stream attaches: fill any missed slides.
+    for (let i = 1; i <= res.slides; i++) {
+      let c = grid.querySelector(`#s${i}`);
+      if (!c) { c = el('div', { class: 'card slide pending', id: `s${i}` }); grid.append(c); }
+      if (c.classList.contains('pending')) { c.innerHTML = await (await fetch(`/api/decks/${res.deckId}/slides/${i}`)).text(); c.className = 'card slide'; }
+    }
     for (const c of grid.children) c.append(regenButton(res.deckId, +c.id.slice(1), c));
     const u = res.usage || {};
     status.innerHTML = '';
@@ -93,6 +99,7 @@ $('#file').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
 drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
 function showLogin(msg) {
   $('aside').classList.add('locked');
+  $('#upstatus').textContent = ''; $('#profiles').innerHTML = '';
   const email = el('input', { type: 'email', id: 'email', placeholder: 'Email', autocomplete: 'username' });
   const pw = el('input', { type: 'password', id: 'password', placeholder: 'Password (8+ characters)', autocomplete: 'current-password' });
   const err = el('p', { class: 'muted', id: 'autherr' }, msg || '');

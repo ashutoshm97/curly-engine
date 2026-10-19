@@ -145,7 +145,7 @@ func serve(args []string) error {
 	runner.Handle(ingest.JobType, ing.Handle)
 
 	writer := newWriter(st)
-	gs := &gen.Service{Store: st, Writer: writer, Concurrency: 4, AssetURL: func(ref string) string { return "/api/assets/" + ref }}
+	gs := &gen.Service{Store: st, Writer: writer, Concurrency: 4, AssetURL: func(ref string) string { return "/api/assets/" + ref }, Images: newImages(st, blobs)}
 	runner.Handle(gen.JobType, gs.Handle)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -169,6 +169,18 @@ func serve(args []string) error {
 }
 
 // newWriter returns the Gemini writer when a key is set, otherwise the offline writer. st may be nil.
+// newImages enables image-slot generation when GEMINI_IMAGE_MODEL and a key are set.
+func newImages(st *store.Store, bs *blob.Store) *gen.Images {
+	key, model := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY"), os.Getenv("GEMINI_IMAGE_MODEL")
+	if key == "" || model == "" || bs == nil {
+		return nil
+	}
+	slog.Info("images", "provider", "gemini", "model", model)
+	g := llm.NewGemini(key)
+	g.HTTP.Timeout = 120 * time.Second
+	return &gen.Images{Client: g, Model: model, Blobs: bs, Store: st}
+}
+
 func newWriter(st *store.Store) gen.Writer {
 	key := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY")
 	if key == "" {
@@ -204,16 +216,17 @@ func generate(args []string) error {
 		return err
 	}
 	var blobs render.Blobs
+	var bs *blob.Store
 	if *dataDir != "" {
-		bs, err := blob.New(filepath.Join(*dataDir, "blobs"))
-		if err != nil {
+		if bs, err = blob.New(filepath.Join(*dataDir, "blobs")); err != nil {
 			return err
 		}
 		blobs = bs.Get
 	}
 	start := time.Now()
 	sc, u, err := gen.Generate(context.Background(), p, newWriter(nil), *prompt, *slides, 4, gen.Hooks{
-		Slide: func(s *scene.Slide, total int) { fmt.Fprintf(os.Stderr, "slide %d/%d: %s\n", s.Index, total, s.Title) },
+		Decorate: newImages(nil, bs).Fill,
+		Slide:    func(s *scene.Slide, total int) { fmt.Fprintf(os.Stderr, "slide %d/%d: %s\n", s.Index, total, s.Title) },
 	})
 	if err != nil {
 		return err
