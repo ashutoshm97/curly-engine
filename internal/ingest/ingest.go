@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ashutoshm97/curly-engine/internal/blob"
+	"github.com/ashutoshm97/curly-engine/internal/enrich"
 	"github.com/ashutoshm97/curly-engine/internal/htmlx"
 	"github.com/ashutoshm97/curly-engine/internal/jobs"
 	"github.com/ashutoshm97/curly-engine/internal/normalize"
@@ -44,6 +45,8 @@ type Service struct {
 	HTML  *htmlx.Extractor
 	// Vision, when set, infers the style of charts that are only pictures.
 	Vision *vision.ChartReader
+	// Enrich, when set, adds AI-created components, names and cleanup hints to new profiles.
+	Enrich *enrich.Enricher
 }
 
 // DetectKind classifies an upload by magic bytes, falling back to the extension.
@@ -122,6 +125,12 @@ func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (
 	prof, err := normalize.Build(deck, normalize.Options{ID: id, Name: name})
 	if err != nil {
 		return nil, jobs.Permanent{Err: err}
+	}
+	if s.Enrich != nil {
+		rep.Stage("enrich")
+		if n, err := s.Enrich.Enrich(ctx, prof); err != nil {
+			slog.Warn("enrich", "err", err, "changes", n)
+		}
 	}
 	rep.Stage("save")
 	if err := s.saveAssets(prof, deck); err != nil {

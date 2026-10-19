@@ -21,6 +21,7 @@ import (
 
 	"github.com/ashutoshm97/curly-engine/internal/api"
 	"github.com/ashutoshm97/curly-engine/internal/blob"
+	"github.com/ashutoshm97/curly-engine/internal/enrich"
 	"github.com/ashutoshm97/curly-engine/internal/gen"
 	"github.com/ashutoshm97/curly-engine/internal/htmlx"
 	"github.com/ashutoshm97/curly-engine/internal/ingest"
@@ -100,6 +101,11 @@ func extract(args []string) error {
 	if err != nil {
 		return err
 	}
+	if e := newEnricher(nil); e != nil {
+		if _, err := e.Enrich(context.Background(), p); err != nil {
+			slog.Warn("enrich", "err", err)
+		}
+	}
 	x, err := p.MarshalIndent()
 	if err != nil {
 		return err
@@ -142,7 +148,7 @@ func serve(args []string) error {
 	defer html.Close()
 
 	runner := jobs.NewRunner(st, *workers)
-	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html, Vision: newVision(st)}
+	ing := &ingest.Service{Store: st, Blobs: blobs, HTML: html, Vision: newVision(st), Enrich: newEnricher(st)}
 	runner.Handle(ingest.JobType, ing.Handle)
 
 	writer := newWriter(st)
@@ -191,6 +197,16 @@ func newVision(st *store.Store) *vision.ChartReader {
 	}
 	slog.Info("chart vision", "provider", "gemini", "model", model)
 	return &vision.ChartReader{Client: llm.NewCached(llm.NewGemini(key), st, 256, 30*24*time.Hour), Model: model, MaxCalls: 6}
+}
+
+// newEnricher enables AI profile enrichment when a key is set (GEMINI_ENRICH_MODEL=off disables it).
+func newEnricher(st *store.Store) *enrich.Enricher {
+	key, model := firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY"), envOr("GEMINI_ENRICH_MODEL", "gemini-3.8-flash")
+	if key == "" || model == "off" {
+		return nil
+	}
+	slog.Info("enrich", "provider", "gemini", "model", model)
+	return &enrich.Enricher{Client: llm.NewCached(llm.NewGemini(key), st, 64, 30*24*time.Hour), Model: model}
 }
 
 func newWriter(st *store.Store) gen.Writer {

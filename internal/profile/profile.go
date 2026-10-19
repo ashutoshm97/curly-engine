@@ -203,6 +203,8 @@ type Component struct {
 	Type       string          `xml:"type,attr" json:"type"` // text|list|group|image|table|chart
 	Role       string          `xml:"role,attr,omitempty" json:"role,omitempty"`
 	Confidence float64         `xml:"confidence,attr,omitempty" json:"confidence,omitempty"`
+	Name       string          `xml:"name,attr,omitempty" json:"name,omitempty"`
+	Origin     string          `xml:"origin,attr,omitempty" json:"origin,omitempty"` // "llm" when AI-created
 	Text       *TextSpec       `xml:"text" json:"text,omitempty"`
 	Marker     *Marker         `xml:"marker" json:"marker,omitempty"`
 	Shape      *ShapeSpec      `xml:"shape" json:"shape,omitempty"`
@@ -249,6 +251,11 @@ type Layout struct {
 	SourceSlides string   `xml:"sourceSlides,attr,omitempty" json:"sourceSlides,omitempty"`
 	Description  string   `xml:"description,omitempty" json:"description,omitempty"`
 	Background   string   `xml:"background,attr,omitempty" json:"background,omitempty"`
+	Origin       string   `xml:"origin,attr,omitempty" json:"origin,omitempty"` // "llm" when AI-created
+	VariantOf    string   `xml:"variantOf,attr,omitempty" json:"variantOf,omitempty"`
+	SimilarTo    string   `xml:"similarTo,attr,omitempty" json:"similarTo,omitempty"`
+	Hidden       bool     `xml:"hidden,attr,omitempty" json:"hidden,omitempty"` // excluded from generation
+	HiddenReason string   `xml:"hiddenReason,attr,omitempty" json:"hiddenReason,omitempty"`
 	Slots        []Slot   `xml:"slot" json:"slots"`
 	Repeats      []Repeat `xml:"repeat" json:"repeats,omitempty"`
 	Decor        []Decor  `xml:"decor" json:"decor,omitempty"`

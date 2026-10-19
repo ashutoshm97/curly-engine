@@ -211,7 +211,7 @@ func Sanitize(p *profile.StyleProfile, o *Outline, n int) {
 		fallback = c[0].ID
 	}
 	for i := range o.Slides {
-		if p.Layout(o.Slides[i].Layout) == nil {
+		if l := p.Layout(o.Slides[i].Layout); l == nil || l.Hidden {
 			o.Slides[i].Layout = fallback
 		}
 	}
