@@ -184,6 +184,7 @@ func Regenerate(ctx context.Context, p *profile.StyleProfile, w Writer, sc *scen
 }
 
 func compose(p *profile.StyleProfile, o *Outline, i int, c content.Slide) *scene.Slide {
+	content.Clean(&c)
 	sl := layout.Compose(p, c, i+1)
 	sl.Title, sl.Intent = c.Title, o.Slides[i].Intent
 	return sl

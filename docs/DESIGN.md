@@ -344,7 +344,7 @@ Browser (embedded UI: upload, review profile, generate, preview, export)
 | Job queue (NATS replacement) | `jobs` table + atomic claim (`UPDATE … RETURNING`) + worker pool; in-process notify for instant wake-up | At-least-once delivery, idempotency key, retries; no broker to run |
 | Blob store (S3 replacement) | `data/blobs/<sha256[:2]>/<sha256>` | Dedupes logos and images that repeat across decks |
 | HTML extraction | `chromedp` + headless Chrome | Only a real browser gives correct computed CSS and layout boxes |
-| LLM | **Google Gemini** (`gemini-2.5-flash` by default; plan/fill models configurable), JSON-schema output, thinking budget 0 | Low latency and cost; implicit prefix caching applies because the static catalog goes first in the prompt |
+| LLM | **Google Gemini** (`gemini-3.8-flash` by default; plan/fill models configurable), JSON-schema output, thinking budget 0 | Low latency and cost; implicit prefix caching applies because the static catalog goes first in the prompt |
 | Text metrics | `golang.org/x/image/font/opentype` with Go fonts as metric fallbacks | Deterministic text fitting without a browser |
 | UI | Static HTML/JS embedded with `embed`, SVG rendering | Nothing extra to build or deploy |
 

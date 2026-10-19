@@ -111,7 +111,7 @@ func (w *LLMWriter) Fill(ctx context.Context, p *profile.StyleProfile, o *Outlin
 	for _, s := range o.Slides {
 		titles = append(titles, s.Title)
 	}
-	msg := fmt.Sprintf("LAYOUTS:\n%s\nDeck: %q (%d slides: %s)\nTopic: %s\n\nWrite slide %d using layout %s. Title: %q. Intent: %s.\nFill only the fields that layout's slots need (title/subtitle/body/bullets/items/table/imagePrompt); keep within the char limits.",
+	msg := fmt.Sprintf("LAYOUTS:\n%s\nDeck: %q (%d slides: %s)\nTopic: %s\n\nWrite slide %d using layout %s. Title: %q. Intent: %s.\nFill only the fields that layout's slots need (title/subtitle/body/bullets/items/table/imagePrompt); keep within the char limits. Each bullet is one short point (no bullet characters or line breaks).",
 		Catalog(p), o.Title, len(o.Slides), strings.Join(titles, " | "), prompt, i+1, it.Layout, it.Title, it.Intent)
 	raw, u, err := w.Client.GenerateJSON(ctx, llm.Request{Model: w.FillModel, System: system, Prompt: msg, Schema: slideSchema, Temperature: 0.7})
 	if err != nil {

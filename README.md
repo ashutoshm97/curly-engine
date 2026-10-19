@@ -65,7 +65,7 @@ internal/api        HTTP/JSON + SSE
 
 ## Generation
 
-`POST /api/decks {"profileId","prompt","slides"}` plans and writes content with Gemini (`GEMINI_API_KEY`; models via `GEMINI_PLAN_MODEL` / `GEMINI_FILL_MODEL`, default `gemini-2.5-flash`) or a deterministic offline writer when no key is set. Slides stream over `/api/jobs/{id}/events` as SVG; export with `GET /api/decks/{id}/export.pptx`; rewrite one slide with `POST /api/decks/{id}/slides/{n}/regenerate {"hint"}` (one Fill call).
+`POST /api/decks {"profileId","prompt","slides"}` plans and writes content with Gemini (`GEMINI_API_KEY`; models via `GEMINI_PLAN_MODEL` / `GEMINI_FILL_MODEL`, default `gemini-3.8-flash`) or a deterministic offline writer when no key is set. Slides stream over `/api/jobs/{id}/events` as SVG; export with `GET /api/decks/{id}/export.pptx`; rewrite one slide with `POST /api/decks/{id}/slides/{n}/regenerate {"hint"}` (one Fill call).
 
 CLI: `styleengine generate -profile components.xml -prompt "Q3 review" -slides 8 -o deck.pptx [-svg out/] [-data ./data]`. The embedded UI is served at `/`.
 

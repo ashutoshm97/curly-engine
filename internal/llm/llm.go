@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -78,7 +79,25 @@ type gResponse struct {
 	} `json:"usageMetadata"`
 	Error *struct {
 		Message string `json:"message"`
+		Details []struct {
+			RetryDelay string `json:"retryDelay"`
+		} `json:"details"`
 	} `json:"error"`
+}
+
+// MaxRetryDelay caps how long a server-requested RetryInfo delay is honored.
+const MaxRetryDelay = 65 * time.Second
+
+func (r *gResponse) retryDelay() time.Duration {
+	if r.Error == nil {
+		return 0
+	}
+	for _, d := range r.Error.Details {
+		if v, err := time.ParseDuration(d.RetryDelay); err == nil && v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 // GenerateJSON calls models/{model}:generateContent with thinking disabled and a response schema.
@@ -98,10 +117,12 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 	payload, _ := json.Marshal(body)
 	url := fmt.Sprintf("%s/models/%s:generateContent", g.BaseURL, r.Model)
 	var lastErr error
+	var wait time.Duration
 	for attempt := 0; attempt <= g.Retries; attempt++ {
 		if attempt > 0 {
+			wait = max(wait, time.Duration(1<<(attempt-1))*500*time.Millisecond)
 			select {
-			case <-time.After(time.Duration(1<<(attempt-1)) * 500 * time.Millisecond):
+			case <-time.After(wait):
 			case <-ctx.Done():
 				return nil, Usage{}, ctx.Err()
 			}
@@ -120,6 +141,13 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 		_ = json.Unmarshal(data, &gr)
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("gemini %d", resp.StatusCode)
+			if gr.Error != nil {
+				lastErr = fmt.Errorf("gemini %d: %s", resp.StatusCode, firstLine(gr.Error.Message))
+			}
+			// A long server delay means a daily quota is exhausted: fail fast.
+			if wait = gr.retryDelay(); wait > MaxRetryDelay {
+				return nil, Usage{}, fmt.Errorf("%w (retry in %s)", lastErr, wait.Round(time.Minute))
+			}
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
@@ -139,6 +167,13 @@ func (g *Gemini) GenerateJSON(ctx context.Context, r Request) ([]byte, Usage, er
 		return out.Bytes(), Usage{InputTokens: gr.Usage.Prompt, OutputTokens: gr.Usage.Output, CachedTokens: gr.Usage.Cached}, nil
 	}
 	return nil, Usage{}, fmt.Errorf("gemini: retries exhausted: %w", lastErr)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // Cached memoizes identical requests in an in-process LRU backed by the SQLite cache table.
