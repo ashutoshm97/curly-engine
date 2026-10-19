@@ -81,7 +81,7 @@ func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (
 	if err != nil {
 		return nil, jobs.Permanent{Err: fmt.Errorf("upload %s: %w", p.UploadID, err)}
 	}
-	if existing, err := s.Store.FindProfileBySource(ctx, up.SHA256); err == nil {
+	if existing, err := s.Store.FindProfileBySource(ctx, up.UserID, up.SHA256); err == nil {
 		return Result{ProfileID: existing.ID, Version: existing.CurrentVersion, Reused: true}, nil
 	}
 	data, err := s.Blobs.Get(up.SHA256)
@@ -111,7 +111,7 @@ func (s *Service) Handle(ctx context.Context, j *store.Job, rep jobs.Reporter) (
 	if err != nil {
 		return nil, jobs.Permanent{Err: err}
 	}
-	rec := &store.Profile{ID: id, Name: name, UploadID: up.ID, SourceSHA256: up.SHA256, SourceType: up.Kind}
+	rec := &store.Profile{ID: id, UserID: up.UserID, Name: name, UploadID: up.ID, SourceSHA256: up.SHA256, SourceType: up.Kind}
 	if err := s.Store.CreateProfile(ctx, rec, x); err != nil {
 		return nil, err
 	}

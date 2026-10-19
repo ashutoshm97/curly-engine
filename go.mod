@@ -6,6 +6,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb
 	github.com/chromedp/chromedp v0.11.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	golang.org/x/crypto v0.28.0
 	golang.org/x/image v0.21.0
 	golang.org/x/sync v0.8.0
 	modernc.org/sqlite v1.34.5

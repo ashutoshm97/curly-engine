@@ -27,17 +27,18 @@ type Job struct {
 	MaxAttempts int       `json:"-"`
 	CreatedAt   int64     `json:"createdAt"`
 	UpdatedAt   int64     `json:"updatedAt"`
+	UserID      string    `json:"-"`
 }
 
-const jobCols = `id, type, payload, status, COALESCE(stage,''), COALESCE(result,''), COALESCE(error,''), attempts, max_attempts, created_at, updated_at`
+const jobCols = `id, type, payload, status, COALESCE(stage,''), COALESCE(result,''), COALESCE(error,''), attempts, max_attempts, created_at, updated_at, COALESCE(user_id,'')`
 
 func scanJob(r interface{ Scan(...any) error }) (*Job, error) {
 	j := &Job{}
-	err := r.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Stage, &j.Result, &j.Error, &j.Attempts, &j.MaxAttempts, &j.CreatedAt, &j.UpdatedAt)
+	err := r.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Stage, &j.Result, &j.Error, &j.Attempts, &j.MaxAttempts, &j.CreatedAt, &j.UpdatedAt, &j.UserID)
 	return j, err
 }
 
-// Enqueue inserts a job. If idemKey matches an existing job, that job is returned instead.
+// Enqueue inserts a job owned by UserFrom(ctx). If idemKey matches an existing job, that job is returned instead.
 func (s *Store) Enqueue(ctx context.Context, typ, payload, idemKey string) (*Job, bool, error) {
 	id := NewID("job")
 	var key any
@@ -45,8 +46,8 @@ func (s *Store) Enqueue(ctx context.Context, typ, payload, idemKey string) (*Job
 		key = idemKey
 	}
 	t := now()
-	r, err := s.db.ExecContext(ctx, `INSERT INTO jobs (id,type,payload,status,idem_key,run_after,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(idem_key) DO NOTHING`, id, typ, payload, JobQueued, key, t, t, t)
+	r, err := s.db.ExecContext(ctx, `INSERT INTO jobs (id,type,payload,status,idem_key,run_after,created_at,updated_at,user_id)
+		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(idem_key) DO NOTHING`, id, typ, payload, JobQueued, key, t, t, t, UserFrom(ctx))
 	if err != nil {
 		return nil, false, err
 	}

@@ -12,3 +12,8 @@ button,.btn{background:#4b6bfb;color:#fff;border:0;border-radius:8px;padding:9px
 button.sec,.btn.sec{background:#fff;color:#4b6bfb;border:1px solid #4b6bfb}button:disabled{opacity:.5}
 input[type=number]{width:70px;padding:8px;border:1px solid #c5c9d3;border-radius:8px}.pill{background:#eef1ff;border-radius:99px;padding:2px 10px;font-size:12px}
 .slide.pending{aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;color:#aaa}
+
+aside.locked > :not(h1) { display: none; }
+#account { font-size: 12px; margin: -8px 0 12px; }
+form.auth { max-width: 340px; display: flex; flex-direction: column; gap: 10px; }
+form.auth input { padding: 8px; border: 1px solid #ccd; border-radius: 6px; font: inherit; }

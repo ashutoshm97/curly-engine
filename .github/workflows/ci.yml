@@ -41,6 +41,7 @@ jobs:
         run: |
           docker run -d --name se -p 8080:8080 styleengine:ci
           for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
-          curl -fsS -F file=@testdata/nimbus.html localhost:8080/api/uploads
+          curl -fsS -c jar -H 'Content-Type: application/json' -d '{"email":"ci@example.com","password":"ci-password"}' localhost:8080/api/auth/signup
+          curl -fsS -b jar -F file=@testdata/nimbus.html localhost:8080/api/uploads
           sleep 5
-          curl -fsS localhost:8080/api/profiles | grep -q '"sourceType":"html"' || { docker logs se; exit 1; }
+          curl -fsS -b jar localhost:8080/api/profiles | grep -q '"sourceType":"html"' || { docker logs se; exit 1; }

@@ -34,7 +34,7 @@ func TestProfileVersions(t *testing.T) {
 	if string(x) != "<v1/>" {
 		t.Errorf("v1 = %s", x)
 	}
-	if got, err := s.FindProfileBySource(ctx, "abc"); err != nil || got.ID != "p1" {
+	if got, err := s.FindProfileBySource(ctx, "", "abc"); err != nil || got.ID != "p1" {
 		t.Errorf("by source: %v %v", got, err)
 	}
 	if _, err := s.GetProfile(ctx, "nope"); err != ErrNotFound {

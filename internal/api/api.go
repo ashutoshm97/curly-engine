@@ -27,6 +27,7 @@ type Server struct {
 	Runner *jobs.Runner
 	Ingest *ingest.Service
 	Gen    *gen.Service
+	Signup bool // allow new accounts via POST /api/auth/signup
 	mux    *http.ServeMux
 }
 
@@ -41,9 +42,10 @@ func (s *Server) Handler() http.Handler {
 	s.mux.HandleFunc("GET /api/profiles/{id}/components.xml", s.getXML)
 	s.mux.HandleFunc("PUT /api/profiles/{id}/components.xml", s.putXML)
 	s.mux.HandleFunc("GET /api/assets/{ref}", s.asset)
+	s.authRoutes()
 	s.deckRoutes()
 	s.uiRoutes()
-	return logging(s.mux)
+	return logging(s.authenticate(s.mux))
 }
 
 // Mux allows other packages to register routes (generation, UI).
@@ -72,12 +74,12 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		Error(w, http.StatusInternalServerError, "store failed")
 		return
 	}
-	up := &store.Upload{SHA256: sha, Filename: hdr.Filename, Kind: kind, Size: int64(len(data))}
+	up := &store.Upload{UserID: userID(r), SHA256: sha, Filename: hdr.Filename, Kind: kind, Size: int64(len(data))}
 	if err := s.Store.CreateUpload(r.Context(), up); err != nil {
 		Error(w, http.StatusInternalServerError, "store failed")
 		return
 	}
-	job, err := s.Runner.Submit(r.Context(), ingest.JobType, ingest.Payload{UploadID: up.ID, Name: r.FormValue("name")}, "ingest:"+sha)
+	job, err := s.Runner.Submit(r.Context(), ingest.JobType, ingest.Payload{UploadID: up.ID, Name: r.FormValue("name")}, "ingest:"+userID(r)+":"+sha)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "enqueue failed")
 		return
@@ -87,6 +89,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	j, err := s.Store.GetJob(r.Context(), r.PathValue("id"))
+	if err == nil && j.UserID != userID(r) {
+		err = store.ErrNotFound
+	}
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -100,6 +105,9 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 	events, unsub := s.Runner.Subscribe(id)
 	defer unsub()
 	j, err := s.Store.GetJob(r.Context(), id)
+	if err == nil && j.UserID != userID(r) {
+		err = store.ErrNotFound
+	}
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -156,7 +164,7 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
-	ps, err := s.Store.ListProfiles(r.Context())
+	ps, err := s.Store.ListProfiles(r.Context(), userID(r))
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -167,9 +175,18 @@ func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, ps)
 }
 
+// ownProfile returns the profile if it belongs to the requesting user, else ErrNotFound.
+func (s *Server) ownProfile(r *http.Request, id string) (*store.Profile, error) {
+	p, err := s.Store.GetProfile(r.Context(), id)
+	if err == nil && p.UserID != userID(r) {
+		return nil, store.ErrNotFound
+	}
+	return p, err
+}
+
 // LoadProfile returns metadata and the parsed components.xml for a version (0 = current).
 func (s *Server) LoadProfile(r *http.Request, id string, version int) (*store.Profile, *profile.StyleProfile, int, error) {
-	meta, err := s.Store.GetProfile(r.Context(), id)
+	meta, err := s.ownProfile(r, id)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -193,6 +210,10 @@ func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getXML(w http.ResponseWriter, r *http.Request) {
 	v, _ := strconv.Atoi(r.URL.Query().Get("version"))
+	if _, err := s.ownProfile(r, r.PathValue("id")); err != nil {
+		storeErr(w, err)
+		return
+	}
 	x, _, err := s.Store.ProfileXML(r.Context(), r.PathValue("id"), v)
 	if err != nil {
 		storeErr(w, err)
@@ -206,6 +227,10 @@ func (s *Server) getXML(w http.ResponseWriter, r *http.Request) {
 // putXML stores a user-edited components.xml as a new version after validation.
 func (s *Server) putXML(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if _, err := s.ownProfile(r, id); err != nil {
+		storeErr(w, err)
+		return
+	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		Error(w, http.StatusBadRequest, "read body")
