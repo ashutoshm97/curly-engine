@@ -30,6 +30,27 @@ jobs:
       - name: build
         run: go build -o bin/styleengine ./cmd/styleengine
 
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: pg
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go test (Postgres store)
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres:pg@localhost:5432/postgres?sslmode=disable
+        run: go test -race -count=1 ./internal/store/... ./internal/jobs ./internal/api
+
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 20
