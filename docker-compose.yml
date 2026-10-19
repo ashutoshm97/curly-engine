@@ -1,0 +1,15 @@
+services:
+  styleengine:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GEMINI_API_KEY
+      - GEMINI_PLAN_MODEL
+      - GEMINI_FILL_MODEL
+    volumes:
+      - styleengine-data:/data
+    restart: unless-stopped
+
+volumes:
+  styleengine-data:

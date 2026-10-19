@@ -70,6 +70,9 @@ func (x *Extractor) start() (context.Context, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.WindowSize(1280, 720),
 		chromedp.Flag("disable-background-networking", true),
+		// Containers usually lack the user namespaces Chrome's sandbox needs.
+		chromedp.Flag("no-sandbox", os.Getenv("CHROME_NO_SANDBOX") == "1"),
+		chromedp.Flag("disable-dev-shm-usage", true),
 	)
 	if x.execPath != "" {
 		opts = append(opts, chromedp.ExecPath(x.execPath))
