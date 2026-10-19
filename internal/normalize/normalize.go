@@ -171,8 +171,8 @@ func (b *builder) classify() {
 					cx, cy := el.Box.CX(), el.Box.CY()
 					if el.Box.Area() < 0.03 && (cx < 0.25 || cx > 0.75) && (cy < 0.2 || cy > 0.8) {
 						el.Role = rawdeck.RoleLogo
-					} else if el.Inherited {
-						el.Role = rawdeck.RoleDecor
+					} else if el.Inherited || el.Box.Area() < 0.015 {
+						el.Role = rawdeck.RoleDecor // repeated art or small icons, not content slots
 					} else {
 						el.Role = rawdeck.RoleImage
 					}
